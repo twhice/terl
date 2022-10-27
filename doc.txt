@@ -1,0 +1,78 @@
+语法分析规则
+起始总是字符串:
+$strat
+W_BGEIN
+    已知->特殊的
+    $const
+    W_CONST
+        条件控制
+            if->接表达式,计算得t/f,是则进入,否则略过
+            $const=if $expr 
+            <W_IF $expr $block +$else>
+                立刻接语句
+                $expr $$word
+                    块压缩为语句
+                表达式之后神魔也没有
+                $expr $block
+                +else 类似与上
+                <W_ELSE $block>
+            impl->为一个结构体定义方法,内部(目前)为仅支持函数定义的特殊块
+            $const=impl $name $sblock
+            <W_IMPL $name $sblock1>
+    未知->未定的 在用(read)未定之前,被提到,自动定义(write)
+    $name        
+    W_NEW
+        (xxxx)     ->函数定义
+        ($args): $type=void \n $block
+        <W_DEF_FUN $name $args $type $block>
+            :->
+                返回值类型,在本行给出
+                否则,没有返回
+            
+        各种赋值运算符-> (迫不及待地)定义(write)
+        ...= $expr 
+        <W_DEF_VUL $name $expr>
+            + : ->提供类型(内置/结构体)
+            赋值运算符: = += -= *= /= **= //= 
+            一个表达式,结束行 
+            !表达式在行结束前如果没有闭合,报错BROKEN_EXPR $pos
+        :      ->定义结构体 内部(目前)为只能定义变量的特殊块
+        : \n $sblock
+        <W_DEF_STRUCT $name $sblock2>
+
+        单表达式(调用函数),废弃值(?)
+            <W_ONLY_EXPR $name $args>
+            !函数不存在,报错 UNKNOW_FUN $name $pos
+
+    
+更新:
+$keyword
+    $="if"
+        $expr=condition
+            $word endl/block 
+    $="else"
+        $word endl/block
+    $="return"
+        $expr endl 
+    $=name
+        $symbol (
+            $expr=args
+                $symbol )
+                    $key=type endl/block
+        $symbol =
+            $expr=vul
+        $symbol :
+            $block=def
+$expr(glo = ...)
+
+(好像)就六种闭合...ez?
+前期当然用虚拟机
+虚拟指令
+read(num)       读取某(相对)位置的信息
+write(num)      改写某(相对)位置的信息
+new_stack()     创建新的,同时更改stack
+remove_stack()  摧毁最新的整个stack
+last()          回到上一个stack(改变相对路径)
+back()          最到顶部的stack(更正相对路径)
+new(num)        在堆上申请一个位子
+delete(num)     清空堆上的一个位子
