@@ -34,6 +34,11 @@ impl Debug for Name {
         write!(f, "{}", str)
     }
 }
+impl From<&str> for Name {
+    fn from(str: &str) -> Self {
+        Self::new(str.chars().collect())
+    }
+}
 #[derive(Debug, Clone)]
 pub struct Type {
     name: Name,
@@ -41,6 +46,11 @@ pub struct Type {
 impl Type {
     pub fn new(name: Name) -> Self {
         Self { name }
+    }
+}
+impl From<&str> for Type {
+    fn from(str: &str) -> Self {
+        Self::new(Name::from(str))
     }
 }
 /// 扩展的Token,带有位置信息
