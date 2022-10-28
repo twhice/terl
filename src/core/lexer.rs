@@ -248,8 +248,10 @@ impl Lexer {
                 );
                 return;
             } else {
+                let l = crate::BRACKET_L;
+                let r = crate::BRACKET_R;
                 self.error(&format!(
-                    "Expect a name,but found {}{}",
+                    "Expect a name,but found {l}{}{r}{}",
                     self.fulltokens[0].get_token(),
                     self.fulltokens[0].get_pos()
                 ))
@@ -259,8 +261,10 @@ impl Lexer {
         {
             self.build_by_op()
         } else {
+            let l = crate::BRACKET_L;
+            let r = crate::BRACKET_R;
             self.error(&format!(
-                "Expect a name,but found {:?}{}",
+                "Expect a name,but found {l}{}{r}{}",
                 self.fulltokens[1].get_token(),
                 self.fulltokens[1].get_pos()
             ))
@@ -335,8 +339,10 @@ impl Lexer {
             ))
         };
         let err_not_name = |index: usize| {
+            let l = crate::BRACKET_L;
+            let r = crate::BRACKET_R;
             (*this).error(&format!(
-                "Expect a name,but found{}{}",
+                "Expect a name,but found{l}{}{r}{}",
                 (*this).fulltokens[index].get_token(),
                 (*this).fulltokens[index].get_pos()
             ))
@@ -436,8 +442,10 @@ impl Lexer {
                     if let Token::Keyword(_extern_typename) = fulltoken.get_token() {
                         externs.push(Type::new(Name::new(_extern_typename)));
                     } else {
+                        let l = crate::BRACKET_L;
+                        let r = crate::BRACKET_R;
                         (*this).error(&format!(
-                            "Expect a type-name as extern ,but found {}{}",
+                            "Expect a type-name as extern ,but found {l}{}{r}{}",
                             fulltoken.get_token(),
                             fulltoken.get_pos()
                         ))
@@ -493,16 +501,18 @@ impl Lexer {
             poss.push(fulltoken.get_pos());
         }
         let tokens = tokens[start_index..].to_vec();
+        let l = crate::BRACKET_L;
+        let r = crate::BRACKET_R;
         match expr::build_expr(&tokens) {
             Ok(_expr) => return _expr,
             Err(_err) => match _err {
                 super::error::TerlError::ExpectAVul(_index) => self.error(&format!(
-                    "Expect a vul ,bul found{}{}",
+                    "Expect a vul ,bul found{l}{}{r}{}",
                     self.fulltokens[start_index + _index].get_token(),
                     self.fulltokens[start_index + _index].get_pos()
                 )),
                 super::error::TerlError::ExpectASymbol(_index) => self.error(&format!(
-                    "Expect a symbol ,bul found{}{}",
+                    "Expect a symbol ,bul found{l}{}{r}{}",
                     self.fulltokens[start_index + _index].get_token(),
                     self.fulltokens[start_index + _index].get_pos()
                 )),
