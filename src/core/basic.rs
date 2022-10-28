@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 pub static TOKENS: [&str; 5] = ["if", "else", "return", "pub", "import"];
 /// terl的变量名
 ///
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Name {
     name: Vec<char>,
 }
@@ -21,6 +21,17 @@ impl Name {
 
     pub fn set_name(&mut self, name: Vec<char>) {
         self.name = name;
+    }
+}
+impl Debug for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut str = String::new();
+        for char in &self.name {
+            let c = String::from(char.to_owned());
+            str += c.as_str();
+        }
+
+        write!(f, "{}", str)
     }
 }
 #[derive(Debug, Clone)]

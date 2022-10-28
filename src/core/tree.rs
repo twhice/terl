@@ -8,6 +8,18 @@ where
     Node(Vec<Self>),
     Dot(Box<T>),
 }
+impl<T> Tree<T>
+where
+    T: BeTree + Debug + Clone,
+{
+    pub fn push(&mut self, e: T) {
+        let new = Self::Dot(Box::new(e));
+        match self {
+            Tree::Node(_vec) => _vec.push(new),
+            Tree::Dot(_) => *self = Self::Node(vec![self.clone(), new]),
+        }
+    }
+}
 
 pub trait BeTree
 where

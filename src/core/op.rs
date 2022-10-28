@@ -108,6 +108,7 @@ impl Op {
     pub fn priority(&self) -> usize {
         match self {
             // = < &&|| < <><= >= < ! <  +- < */ < ^ < () < other < .
+            Self::B1r => 10, // )
             // Self::Assign => 10,  // =
             Self::Tied => 9,     // ,
             Self::Smaller => 8,  // <
@@ -122,7 +123,6 @@ impl Op {
             Self::Dev => 4,      // /
             Self::Mod => 4,      // %
             Self::Inv => 3,      // ^
-            Self::B1r => 0,      // )
             Self::Not => 2,      // !
             Self::B1l => 1,      // (
             _ => 0,              // others

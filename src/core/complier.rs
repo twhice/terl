@@ -38,7 +38,8 @@ impl Complier {
             if let Some(line) = &self.src.first() {
                 self.lexer.lex(line.to_owned().clone());
                 self.src.remove(0);
-                // self.main.push(self.lexer.build_context())
+                self.main.push(self.lexer.get_word());
+                // println!("{:?}", self);
             } else {
                 break;
             }

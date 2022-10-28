@@ -48,7 +48,10 @@ impl Lexer {
         }
         self.basic_finish_line();
         self.word.set_pos(self.pos.clone());
-        self.lex2();
+        self.build();
+    }
+    pub fn get_word(&self) -> Word {
+        self.word.clone()
     }
     // basic
     fn get(&self) -> char {
@@ -162,7 +165,7 @@ impl Lexer {
         }
     }
     // more
-    fn lex2(&mut self) {
+    fn build(&mut self) {
         //  根据第一个字符就可以确定: 是定义/流程
         if !self.fulltokens.is_empty() {
             let ft = &self.fulltokens[0];
@@ -229,7 +232,20 @@ impl Lexer {
         }
         //注册(?) 一个vul
         else if self.fulltokens.len() == 1 {
-            self.fill_defvul();
+            if let Token::Keyword(_name) = self.fulltokens[0].get_token() {
+                *self.word.context() = Context::DefVul(
+                    Name::new(_name),
+                    Expr::Value(0),
+                    Type::new(Name::new("auto".chars().collect())),
+                );
+                return;
+            } else {
+                self.error(&format!(
+                    "Expect a name,but found {}{}",
+                    self.fulltokens[0].get_token(),
+                    self.fulltokens[0].get_pos()
+                ))
+            }
         } else if self.fulltokens[0].get_token().is_keyword()
             && self.fulltokens[1].get_token().is_symbol()
         {
@@ -250,7 +266,7 @@ impl Lexer {
     fn fill_else(&mut self) {}
     fn fill_return(&mut self) {}
     fn fill_import(&mut self) {}
-    fn fill_defvul(&mut self) {}
+    // fn fill_defvul(&mut self) {}
     fn build_by_op(&mut self) {
         // token_temp:
         // 0 name
@@ -369,7 +385,7 @@ impl Lexer {
             poss.push(fulltoken.get_pos());
         }
         let tokens = tokens[start_index..].to_vec();
-        match expr::collext_expr(&tokens) {
+        match expr::build_expr(&tokens) {
             Ok(_expr) => return _expr,
             Err(_err) => match _err {
                 super::error::TerlError::ExpectAVul(_index) => self.error(&format!(
