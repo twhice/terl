@@ -48,7 +48,7 @@ pub enum Op {
     Exit,  // ?
     Lexer, // ;
 
-    DefStruct,
+    Type,
     Incomplete,
 }
 impl Op {
@@ -73,7 +73,7 @@ impl Op {
             ';' => Self::Lexer,
             '&' => Self::Cite,
             '|' => Self::Incomplete,
-            ':' => Self::DefStruct,
+            ':' => Self::Type,
             '.' => Self::Dot,
             ',' => Self::Tied,
             '\"' => Self::B5,
@@ -107,8 +107,8 @@ impl Op {
     }
     pub fn priority(&self) -> usize {
         match self {
-            // = < &&|| < <><=>= < ! <  +- < */ < ^ < () < other < .
-            Self::Assign => 10,  // =
+            // = < &&|| < <><= >= < ! <  +- < */ < ^ < () < other < .
+            // Self::Assign => 10,  // =
             Self::Tied => 9,     // ,
             Self::Smaller => 8,  // <
             Self::Greater => 8,  // >
@@ -127,13 +127,5 @@ impl Op {
             Self::B1l => 1,      // (
             _ => 0,              // others
         }
-    }
-
-    /// Returns `true` if the symbol is [`Tied`].
-    ///
-    /// [`Tied`]: Symbol::Tied
-    #[must_use]
-    pub fn is_tied(&self) -> bool {
-        matches!(self, Self::Tied)
     }
 }

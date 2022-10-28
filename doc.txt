@@ -54,6 +54,7 @@ $keyword
         $word endl/block
     $="return"
         $expr endl 
+    (+$=pub)
     $=name
         $symbol (
             $expr=args
@@ -65,7 +66,7 @@ $keyword
             $block=def
 $expr(glo = ...)
 
-(好像)就六种闭合...ez?
+(好像)就..种闭合...ez?
 前期当然用虚拟机
 虚拟指令
 read(num)       读取某(相对)位置的信息

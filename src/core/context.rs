@@ -1,18 +1,23 @@
 use super::{
-    basic::{FullToken, Name, TOKENS},
+    basic::{Name, Type},
     expr::Expr,
+    pos::Pos,
     tree::{BeTree, Tree},
 };
 
 #[derive(Debug, Clone)]
 pub struct Word {
     deep: usize,
+    is_pub: bool,
+    pos: Pos,
     contest: Context,
 }
 impl Word {
     pub fn new(deep: usize) -> Self {
         Self {
             deep,
+            pos: Pos::new(),
+            is_pub: false,
             contest: Context::Begin,
         }
     }
@@ -21,17 +26,27 @@ impl Word {
         self.deep = deep;
     }
 
-    pub fn deep(&self) -> usize {
-        self.deep
+    pub fn set_is_pub(&mut self, is_pub: bool) {
+        self.is_pub = is_pub;
     }
-
     pub fn context(&mut self) -> &mut Context {
         &mut self.contest
+    }
+    pub fn set_pos(&mut self, pos: Pos) {
+        self.pos = pos
     }
 }
 impl BeTree for Word {
     fn deep(&self) -> usize {
         self.deep
+    }
+    // 不会使用
+    fn is_left_part(&self) -> bool {
+        todo!()
+    }
+
+    fn is_right_part(&self) -> bool {
+        todo!()
     }
 }
 type Block = Tree<Word>;
@@ -42,54 +57,9 @@ pub enum Context {
     If(Expr, Block),
     Else(Block),
     Return(Expr),
-    DefFun(Name, Expr, Block),
-    DefVul(Name, Expr),
-    DefStruct(Name, Block),
-    OnlyExpr(Expr),
-}
-impl Context {
-    // pub fn new(fts: Vec<FullToken>) {
-    //     let mut ret = Self::Begin;
-    //     let mut tokens = Vec::new();
-    //     let mut poss = Vec::new();
-    //     for ft in &fts {
-    //         tokens.push(ft.get_token());
-    //         poss.push(ft.get_pos());
-    //     }
-    //     let have_index = |index: usize| -> bool { !fts.is_empty() && index < fts.len() };
-    //     if have_index(0) {
-    //         //分类
-    //     }
-    // }
-    pub fn up(&mut self, str: Vec<char>) {
-        let mut id: usize = 0;
-        for con in 0..TOKENS.len() {
-            if str == TOKENS[con].chars().collect::<Vec<char>>() {
-                id = con + 1;
-            }
-        }
-        match id {
-            1 => *self = Self::If(Expr::Value(0), Block::Node(Vec::new())),
-            2 => *self = Self::Else(Block::Node(Vec::new())),
-            3 => *self = Self::Return(Expr::Value(0)),
-            // 4 => {}
-            _ => *self = Self::New,
-        }
-    }
-    pub fn up_to_exprs(&mut self) {
-        *self = Self::OnlyExpr(Expr::Value(0));
-    }
-    pub fn expect_all(&self) -> &str {
-        match self {
-            Context::Begin => "",
-            Context::If(_, _) => "neb",            //立刻得出(i0)
-            Context::Else(_) => "ne",              //立刻得出(i0)
-            Context::Return(_) => "ne",            //立刻得出(i0)
-            Context::DefFun(_, _, _) => "k(e):tb", //其次得出(i2)
-            Context::DefVul(_, _) => "k=e",        //其次得出(i2)
-            Context::DefStruct(_, _) => "k:b",     //其次得出(i2)
-            Context::OnlyExpr(_) => "e",           //最后考虑(i3)
-            Context::New => todo!(),
-        }
-    }
+    DefFun(Name, Expr, Block, Type),
+    DefVul(Name, Expr, Type),
+    DefStruct(Name, Block, Vec<Type>),
+    Import(Expr),
+    Empty,
 }

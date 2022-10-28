@@ -1,6 +1,9 @@
+use crate::core::tree::Tree;
+
 use super::{
-    basic::{FullToken, Name, Token},
+    basic::{FullToken, Name, Token, Type, TOKENS},
     context::{Context, Word},
+    expr::{self, Expr},
     op::Op,
     pos::Pos,
 };
@@ -9,7 +12,7 @@ use super::{
 pub struct Lexer {
     line: Vec<char>, //一行
     temp: Vec<char>, //缓存
-    tokens_temp: Vec<FullToken>,
+    fulltokens: Vec<FullToken>,
     word: Word,
     // 状态
     finish: bool,
@@ -26,7 +29,7 @@ impl Lexer {
             line: Vec::new(),
             temp: Vec::new(),
             // tokens: Vec::new(),
-            tokens_temp: Vec::new(),
+            fulltokens: Vec::new(),
             word: Word::new(0),
             finish: false,
             getting_num: false,
@@ -44,6 +47,7 @@ impl Lexer {
             self.basic_lex();
         }
         self.basic_finish_line();
+        self.word.set_pos(self.pos.clone());
         self.lex2();
     }
     // basic
@@ -78,13 +82,13 @@ impl Lexer {
     }
     fn basic_endcurrt(&mut self) {
         if !self.temp.is_empty() {
-            self.tokens_temp.push(FullToken::new(
+            self.fulltokens.push(FullToken::new(
                 self.pos.clone(),
                 Token::Keyword(self.temp.clone()),
             ));
             self.temp.clear();
         } else if self.getting_num {
-            self.tokens_temp
+            self.fulltokens
                 .push(FullToken::new(self.pos.clone(), Token::Number(self.number)));
             self.number = 0;
             self.getting_num = false;
@@ -140,13 +144,13 @@ impl Lexer {
             self.basic_endcurrt();
             if self.next().is_ascii_punctuation() {
                 if let Some(_op) = Op::from_char2(currten, self.get()) {
-                    self.tokens_temp
+                    self.fulltokens
                         .push(FullToken::new(self.pos.clone(), Token::Symbol(_op)));
                     return;
                 }
             }
             if let Some(_op) = Op::from_char(currten) {
-                self.tokens_temp
+                self.fulltokens
                     .push(FullToken::new(self.pos.clone(), Token::Symbol(_op)));
                 return;
             } else {
@@ -159,87 +163,301 @@ impl Lexer {
     }
     // more
     fn lex2(&mut self) {
-        let mut tokens = Vec::new();
-        let mut poss = Vec::new();
-        for ft in &self.tokens_temp {
-            tokens.push(ft.get_token());
-            poss.push(ft.get_pos());
-        }
-        for i in 0..tokens.len() {
-            let token = tokens[i].clone();
-            // 分清1类(完整句) 2类(残缺句)
-            if i == 0 {
-                // 完整
-                if let Token::Keyword(_str) = token {
-                    self.word.context().up(_str);
-                // 残缺
-                } else {
-                    self.word.context().up_to_exprs();
-                    self.fill_expr();
-                    return;
+        //  根据第一个字符就可以确定: 是定义/流程
+        if !self.fulltokens.is_empty() {
+            let ft = &self.fulltokens[0];
+            if let Token::Keyword(_key) = ft.get_token() {
+                let mut key = 0;
+                for index in 0..TOKENS.len() {
+                    if _key == TOKENS[index].chars().collect::<Vec<char>>() {
+                        key = index + 1;
+                        break;
+                    } else {
+                        key = 0;
+                    }
                 }
-            // 残缺句已退出:补全立即句,区分定义句
-            } else if i == 1 {
-                match self.word.context() {
-                    super::context::Context::If(_, _) => {
+                type Block = Tree<Word>;
+                match key {
+                    1 => {
+                        *self.word.context() = Context::If(Expr::Value(0), Block::Node(Vec::new()));
                         self.fill_if();
                         return;
                     }
-                    super::context::Context::Else(_) => {
+
+                    2 => {
+                        *self.word.context() = Context::Else(Block::Node(Vec::new()));
                         self.fill_else();
                         return;
                     }
-                    super::context::Context::Return(_) => {
+                    3 => {
+                        *self.word.context() = Context::Return(Expr::Value(0));
                         self.fill_return();
                         return;
                     }
+                    5 => {
+                        *self.word.context() = Context::Import(Expr::Value(0));
+                        self.fill_import();
+                        return;
+                    }
+                    4 => {
+                        self.word.set_is_pub(true);
+                        // 删除 "pub"
+                        self.fulltokens.remove(0);
+                        *self.word.context() = Context::New;
+                    }
                     _ => {
-                        if let Token::Symbol(_op) = token {
-                            match _op {
-                                Op::B1l => {
-                                    *self.word.context() = Context::DefFun(
-                                        Name::new(Vec::new()),
-                                        super::expr::Expr::Value(0),
-                                        super::tree::Tree::Node(Vec::new()),
-                                    );
-                                    self.fill_deff();
-                                    return;
-                                }
-                                Op::Assign => {
-                                    *self.word.context() = Context::DefVul(
-                                        Name::new(Vec::new()),
-                                        super::expr::Expr::Value(0),
-                                    );
-                                    self.fill_vul();
-                                    return;
-                                }
-                                Op::DefStruct => {
-                                    *self.word.context() = Context::DefStruct(
-                                        Name::new(Vec::new()),
-                                        super::tree::Tree::Node(Vec::new()),
-                                    );
-                                    self.fill_struct();
-                                    return;
-                                }
-                                _ => todo!("排除在外"),
-                            }
-                        }
+                        self.word.set_is_pub(false);
+                        *self.word.context() = Context::New;
                     }
                 }
             } else {
-                return;
+                self.error(&format!(
+                    "Expect a str,but found{}{}",
+                    ft.get_token(),
+                    ft.get_pos()
+                ))
             }
+        } else {
+            *self.word.context() = Context::Empty;
+            return;
+        }
+        // 剩下的,就是一个定义
+
+        // 空的
+        if self.fulltokens.len() == 0 {
+            self.error(&format!("Expect a name,but found nothing{}", self.pos))
+        }
+        //注册(?) 一个vul
+        else if self.fulltokens.len() == 1 {
+            self.fill_defvul();
+        } else if self.fulltokens[0].get_token().is_keyword()
+            && self.fulltokens[1].get_token().is_symbol()
+        {
+            self.build_by_op()
+        } else {
+            self.error(&format!(
+                "Expect a name,but found {:?}{}",
+                self.fulltokens[1].get_token(),
+                self.fulltokens[1].get_pos()
+            ))
         }
     }
     // 好日子还在后头呢
     // 看看这一堆可癌的方法
-    fn fill_if(&mut self) {}
+    fn fill_if(&mut self) {
+        self.fulltokens.remove(0);
+    }
     fn fill_else(&mut self) {}
     fn fill_return(&mut self) {}
-    fn fill_vul(&mut self) {}
-    fn fill_deff(&mut self) {}
-    fn fill_struct(&mut self) {}
-    fn fill_expr(&mut self) {}
+    fn fill_import(&mut self) {}
+    fn fill_defvul(&mut self) {}
+    fn build_by_op(&mut self) {
+        // token_temp:
+        // 0 name
+        // 1 op
+        // 废话获取 1
+        let mut name = Name::new(Vec::new());
+        if let Token::Keyword(_name) = self.fulltokens[0].get_token() {
+            name.set_name(_name);
+            self.fulltokens.remove(0);
+        }
+        // 废话获取2
+        let fft = self.fulltokens[0].clone();
+        let mut op = Op::None;
+        if let Token::Symbol(_op) = fft.get_token() {
+            op = _op;
+            if let Op::B1l = op {
+            } else {
+                self.fulltokens.remove(0);
+            }
+        }
+
+        // 喜闻乐见裸指针
+        let this = self as *mut Lexer;
+        // let ptr_name = &mut name as *mut Name;
+
+        // let this = unsafe { *t };
+
+        // 各种错误
+        let err_not_name = |index: usize| unsafe {
+            (*this).error(&format!(
+                "Expect a name,but found{}{}",
+                (*this).fulltokens[index].get_token(),
+                (*this).fulltokens[index].get_pos()
+            ))
+        };
+        let err_not_assi = |index: usize| unsafe {
+            let l = crate::BRACKET_L;
+            let r = crate::BRACKET_R;
+            (*this).error(&format!(
+                "Expect a {l}={r},but found{}{}",
+                (*this).fulltokens[index].get_token(),
+                (*this).fulltokens[index].get_pos()
+            ))
+        };
+
+        //2个闭包
+
+        let build_by_type = || unsafe {
+            // 绝对是结构体
+            if (*this).fulltokens.len() <= 1 {
+                let mut externs = Vec::new();
+                for fulltoken in &(*this).fulltokens {
+                    if let Token::Keyword(_extern_typename) = fulltoken.get_token() {
+                        externs.push(Type::new(Name::new(_extern_typename)));
+                    } else {
+                        (*this).error(&format!(
+                            "Expect a type-name as extern ,but found {}{}",
+                            fulltoken.get_token(),
+                            fulltoken.get_pos()
+                        ))
+                    }
+                }
+                *(*this).word.context() =
+                    Context::DefStruct(name.clone(), Tree::Node(Vec::new()), externs);
+                return;
+            }
+            // len>=2
+            else {
+                if let Token::Keyword(_typename) = (*this).fulltokens[0].get_token() {
+                    let t = Type::new(Name::new(_typename));
+                    (*this).fulltokens.remove(0);
+                    if (*this).fulltokens[0].get_token().is_op_assi() {
+                        (*this).fulltokens.remove(0);
+                        (*this).deafult_build(t, name.clone(), fft.clone());
+                        return;
+                    } else {
+                        err_not_assi(0);
+                    }
+                } else {
+                    err_not_name(0);
+                }
+            }
+        };
+        let build_by_br1l = || unsafe {
+            (*this).deafult_build(
+                Type::new(Name::new("void".chars().collect())),
+                name.clone(),
+                fft.clone(),
+            );
+            return;
+        };
+
+        match op {
+            // a=xxx
+            // a=(args):$t
+            Op::Assign => unsafe {
+                self.deafult_build(Type::new(Name::new("void".chars().collect())), name, fft)
+            },
+            // a:t=(args):$block
+            // a:t=$expr
+            // a:t  结构体,不允许这样定义变量/函数
+            // a: +$extern_froms
+            Op::Type => build_by_type(),
+            // a()...
+            Op::B1l => build_by_br1l(),
+            _ => {
+                panic!("看看你写的什么代码")
+            }
+        }
+    }
+    fn try_collect_expr(&mut self, start_index: usize) -> (Expr, usize) {
+        let mut tokens = Vec::new();
+        let mut poss = Vec::new();
+        for fulltoken in &self.fulltokens {
+            tokens.push(fulltoken.get_token());
+            poss.push(fulltoken.get_pos());
+        }
+        let tokens = tokens[start_index..].to_vec();
+        match expr::collext_expr(&tokens) {
+            Ok(_expr) => return _expr,
+            Err(_err) => match _err {
+                super::error::TerlError::ExpectAVul(_index) => self.error(&format!(
+                    "Expect a vul ,bul found{}{}",
+                    self.fulltokens[start_index + _index].get_token(),
+                    self.fulltokens[start_index + _index].get_pos()
+                )),
+                super::error::TerlError::ExpectASymbol(_index) => self.error(&format!(
+                    "Expect a symbol ,bul found{}{}",
+                    self.fulltokens[start_index + _index].get_token(),
+                    self.fulltokens[start_index + _index].get_pos()
+                )),
+                super::error::TerlError::MissBeacket(_index) => self.error(&format!(
+                    "miss bracket{}",
+                    // self.fulltokens[start_index + _index].get_token(),
+                    self.fulltokens[start_index + _index].get_pos()
+                )),
+            },
+        };
+        todo!()
+    }
+    unsafe fn deafult_build(&mut self, t: Type, name: Name, fft: FullToken) {
+        let this = self as *mut Lexer;
+        let err_not_expr = || {
+            (*this).error(&format!(
+                "Expect a expr after{},but found nothing{}",
+                fft.get_token(),
+                fft.get_pos()
+            ))
+        };
+        let err_unknow_after = |index: usize| {
+            (*this).error(&format!(
+                "Expect nothing,but found{}{}",
+                (*this).fulltokens[index].get_token(),
+                (*this).fulltokens[index].get_pos()
+            ))
+        };
+        let err_not_name = |index: usize| {
+            (*this).error(&format!(
+                "Expect a name,but found{}{}",
+                (*this).fulltokens[index].get_token(),
+                (*this).fulltokens[index].get_pos()
+            ))
+        };
+        let len = (*this).fulltokens.len();
+        if len == 0 {
+            err_not_expr();
+        }
+        let (expr, endex) = self.try_collect_expr(0);
+        // 有多余 edefv/edeff+t/deff+t
+        if endex < len {
+            if (*this).fulltokens[0].get_token().is_op_br1l() {
+                if endex == len - 1 {
+                    if let Token::Keyword(_type_name) = (*this).fulltokens[endex].get_token() {
+                        let return_type = Type::new(Name::new(_type_name));
+                        *(*this).word.context() = Context::DefFun(
+                            name.clone(),
+                            expr,
+                            Tree::Node(Vec::new()),
+                            return_type,
+                        );
+                        // ohhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+                        return;
+                    } else {
+                        err_not_name(endex);
+                    }
+                    // deff+t
+                } else {
+                    // edef+t
+                    err_unknow_after(len - 1)
+                }
+            } else {
+                // edefv
+                err_unknow_after(endex)
+            }
+        // 没多余 defv/deff
+        } else {
+            if (*this).fulltokens[0].get_token().is_op_br1l() {
+                *(*this).word.context() =
+                    Context::DefFun(name.clone(), expr, Tree::Node(Vec::new()), t);
+                return;
+            } else {
+                *(*this).word.context() = Context::DefVul(name.clone(), expr, t);
+                return;
+            }
+        }
+    }
+    // fn fill_expr(&mut self) {}
     fn error(&self, meg: &str) {
         panic!("{}", meg)
     }
