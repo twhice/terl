@@ -1,10 +1,10 @@
 mod basic;
+mod complier;
 mod context;
 mod expr;
 mod lexer;
 mod op;
 mod pos;
 mod tree;
-
-pub mod complier;
+pub use complier::Complier;
 mod error;

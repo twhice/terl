@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Pos {
     filename: String,
     line: usize,
@@ -36,6 +36,15 @@ impl Display for Pos {
             f,
             "in file {l}{}{r},at \n\tline:{}\n\trow :{}\n",
             self.filename, self.line, self.row
+        )
+    }
+}
+impl Debug for Pos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            format!(" f:{} l: {} r: {} ", self.filename, self.line, self.row)
         )
     }
 }

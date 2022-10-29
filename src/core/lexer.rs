@@ -2,7 +2,7 @@ use crate::core::tree::Tree;
 
 use super::{
     basic::{FullToken, Name, Token, Type, TOKENS},
-    context::{Context, Word},
+    context::{Context, Statement},
     expr::{self, Expr},
     op::Op,
     pos::Pos,
@@ -13,14 +13,14 @@ use super::{
 ///
 /// - new      构造
 /// - lex      读取一行文本并解析
-/// - get_word 读取解析结果
+/// - get_statement 读取解析结果
 ///
 
 pub struct Lexer {
     line: Vec<char>, //一行
     temp: Vec<char>, //缓存
     fulltokens: Vec<FullToken>,
-    word: Word,
+    statement: Statement,
     // 状态
     finish: bool,
     getting_num: bool,
@@ -37,7 +37,7 @@ impl Lexer {
             temp: Vec::new(),
             // tokens: Vec::new(),
             fulltokens: Vec::new(),
-            word: Word::new(0),
+            statement: Statement::new(0),
             finish: false,
             getting_num: false,
             begin: true,
@@ -53,13 +53,13 @@ impl Lexer {
         while !self.finish {
             self.basic_lex();
         }
+        self.statement.set_pos(self.pos.clone());
         self.basic_finish_line();
-        self.word.set_pos(self.pos.clone());
         self.build();
         self
     }
-    pub fn get_word(&self) -> Word {
-        self.word.clone()
+    pub fn get_statement(&self) -> Statement {
+        self.statement.clone()
     }
     // basic
     fn get(&self) -> char {
@@ -76,8 +76,9 @@ impl Lexer {
     }
     fn basic_init_line(&mut self) {
         self.pos.new_line();
-        // self.basic_endcurrt();
-        // self.index = 0;
+        self.begin = true;
+        self.deep = 0;
+        self.fulltokens.clear();
     }
     fn basic_finish_line(&mut self) {
         if self.finish {
@@ -86,7 +87,8 @@ impl Lexer {
             // 收尾截取
             self.basic_endcurrt();
             // deep载入 清理
-            self.word.set_deep(self.deep);
+            *self.statement.deep() = self.deep;
+            // self.fulltokens.clear();
             self.deep = 0;
             self.index = 0;
         }
@@ -143,15 +145,17 @@ impl Lexer {
                 self.number += self.get() as usize - '0' as usize;
             }
             return;
-        } else if currten.is_ascii_whitespace() {
+        } else if currten.is_whitespace() {
             self.basic_endcurrt();
-            while self.next().is_ascii_whitespace() {
-                if currten == '\t' && self.begin {
+            while self.get().is_whitespace() {
+                if self.begin {
                     self.deep += 1;
                 }
+                self.next();
             }
             return;
         } else if currten.is_ascii_punctuation() {
+            self.begin = false;
             self.basic_endcurrt();
             if self.next().is_ascii_punctuation() {
                 if let Some(_op) = Op::from_char2(currten, self.get()) {
@@ -187,38 +191,39 @@ impl Lexer {
                         key = 0;
                     }
                 }
-                type Block = Tree<Word>;
+                type Block = Tree<Statement>;
                 match key {
                     1 => {
-                        *self.word.context() = Context::If(Expr::Value(0), Block::Node(Vec::new()));
+                        *self.statement.context() =
+                            Context::If(Expr::Value(0), Block::Node(Vec::new()));
                         self.fill_if();
                         return;
                     }
 
                     2 => {
-                        *self.word.context() = Context::Else(Block::Node(Vec::new()));
+                        *self.statement.context() = Context::Else(Block::Node(Vec::new()));
                         self.fill_else();
                         return;
                     }
                     3 => {
-                        *self.word.context() = Context::Return(Expr::Value(0));
+                        *self.statement.context() = Context::Return(Expr::Value(0));
                         self.fill_return();
                         return;
                     }
                     5 => {
-                        *self.word.context() = Context::Import(Expr::Value(0));
+                        *self.statement.context() = Context::Import(Expr::Value(0));
                         self.fill_import();
                         return;
                     }
                     4 => {
-                        self.word.set_is_pub(true);
+                        self.statement.set_is_pub(true);
                         // 删除 "pub"
                         self.fulltokens.remove(0);
-                        *self.word.context() = Context::New;
+                        *self.statement.context() = Context::New;
                     }
                     _ => {
-                        self.word.set_is_pub(false);
-                        *self.word.context() = Context::New;
+                        self.statement.set_is_pub(false);
+                        *self.statement.context() = Context::New;
                     }
                 }
             } else {
@@ -229,7 +234,7 @@ impl Lexer {
                 ))
             }
         } else {
-            *self.word.context() = Context::Empty;
+            *self.statement.context() = Context::Empty;
             return;
         }
         // 剩下的,就是一个定义
@@ -241,7 +246,7 @@ impl Lexer {
         //注册(?) 一个vul
         else if self.fulltokens.len() == 1 {
             if let Token::Keyword(_name) = self.fulltokens[0].get_token() {
-                *self.word.context() = Context::DefVul(
+                *self.statement.context() = Context::DefVul(
                     Name::new(_name),
                     Expr::Value(0),
                     Type::new(Name::new("auto".chars().collect())),
@@ -274,7 +279,7 @@ impl Lexer {
     // 看看这一堆可癌的方法
 
     // const构造
-    fn deafult_build_con(&mut self) -> Expr {
+    fn deafult_build_const(&mut self) -> Expr {
         // 获取位置信息(,方便报错)
         let pos = self.fulltokens[0].get_pos();
         self.fulltokens.remove(0);
@@ -301,7 +306,7 @@ impl Lexer {
         return expr;
     }
     fn fill_if(&mut self) {
-        *self.word.context() = Context::If(self.deafult_build_con(), Tree::Node(Vec::new()))
+        *self.statement.context() = Context::If(self.deafult_build_const(), Tree::Node(Vec::new()))
     }
     fn fill_else(&mut self) {
         if self.fulltokens.len() != 1 {
@@ -313,13 +318,13 @@ impl Lexer {
                 self.fulltokens[1].get_token(),
             ))
         }
-        *self.word.context() = Context::Else(Tree::Node(Vec::new()));
+        *self.statement.context() = Context::Else(Tree::Node(Vec::new()));
     }
     fn fill_return(&mut self) {
-        *self.word.context() = Context::Return(self.deafult_build_con());
+        *self.statement.context() = Context::Return(self.deafult_build_const());
     }
     fn fill_import(&mut self) {
-        *self.word.context() = Context::Import(self.deafult_build_con());
+        *self.statement.context() = Context::Import(self.deafult_build_const());
     }
     // define构造
     unsafe fn deafult_build_def(&mut self, t: Type, name: Name, fft: FullToken) {
@@ -358,7 +363,7 @@ impl Lexer {
                 if endex == len - 1 {
                     if let Token::Keyword(_type_name) = (*this).fulltokens[endex].get_token() {
                         let return_type = Type::new(Name::new(_type_name));
-                        *(*this).word.context() = Context::DefFun(
+                        *(*this).statement.context() = Context::DefFun(
                             name.clone(),
                             expr,
                             Tree::Node(Vec::new()),
@@ -381,11 +386,11 @@ impl Lexer {
         // 没多余 defv/deff
         } else {
             if (*this).fulltokens[0].get_token().is_op_br1l() {
-                *(*this).word.context() =
+                *(*this).statement.context() =
                     Context::DefFun(name.clone(), expr, Tree::Node(Vec::new()), t);
                 return;
             } else {
-                *(*this).word.context() = Context::DefVul(name.clone(), expr, t);
+                *(*this).statement.context() = Context::DefVul(name.clone(), expr, t);
                 return;
             }
         }
@@ -451,7 +456,7 @@ impl Lexer {
                         ))
                     }
                 }
-                *(*this).word.context() =
+                *(*this).statement.context() =
                     Context::DefStruct(name.clone(), Tree::Node(Vec::new()), externs);
                 return;
             }
@@ -503,23 +508,26 @@ impl Lexer {
         let tokens = tokens[start_index..].to_vec();
         let l = crate::BRACKET_L;
         let r = crate::BRACKET_R;
+        let target_token = self.fulltokens[start_index].get_token();
+        let target_pos = self.fulltokens[start_index].get_pos();
+        // if let Some(_token) = self.fulltokens.get(start_index + 1) {
+        //     let target_token = self.fulltokens[start_index + 1].get_token();
+        //     let target_pos = self.fulltokens[start_index + 1].get_pos();
+        // }
         match expr::build_expr(&tokens) {
             Ok(_expr) => return _expr,
             Err(_err) => match _err {
                 super::error::TerlError::ExpectAVul(_index) => self.error(&format!(
-                    "Expect a vul ,bul found{l}{}{r}{}",
-                    self.fulltokens[start_index + _index].get_token(),
-                    self.fulltokens[start_index + _index].get_pos()
+                    "Expect a vul after {l}{}{r}{}",
+                    target_token, target_pos
                 )),
                 super::error::TerlError::ExpectASymbol(_index) => self.error(&format!(
-                    "Expect a symbol ,bul found{l}{}{r}{}",
-                    self.fulltokens[start_index + _index].get_token(),
-                    self.fulltokens[start_index + _index].get_pos()
+                    "Expect a symbol after {l}{}{r}{}",
+                    target_token, target_pos
                 )),
                 super::error::TerlError::MissBeacket(_index) => self.error(&format!(
-                    "miss bracket{}",
-                    // self.fulltokens[start_index + _index].get_token(),
-                    self.fulltokens[start_index + _index].get_pos()
+                    "miss bracket after {l}{}{r}{}",
+                    target_token, target_pos
                 )),
             },
         };

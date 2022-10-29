@@ -69,7 +69,6 @@ pub fn build_expr(tokens: &Vec<Token>) -> Result<(Expr, usize), TerlError> {
     let len = get_expr_len(&exprs)?;
     let exprs: Vec<Expr> = exprs[..len].to_vec();
     let ret = unsafe { collect_expr(&exprs) };
-    println!("\n\n\tret:{:?}", ret);
     return Ok((ret, len));
 }
 fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
@@ -80,7 +79,7 @@ fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
     for expr in exprs {
         match expr {
             Expr::Op(_op) => {
-                if expect_vul && !matches!(_op, Op::B1l) {
+                if expect_vul && !(matches!(_op, Op::B1l) || matches!(_op, Op::B1r)) {
                     return Err(TerlError::ExpectAVul(len));
                 }
                 match _op {
@@ -114,15 +113,15 @@ fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
                         }
                     }
                     Op::B1r => {
-                        if !last_is_vul || expect_vul {
-                            return Err(TerlError::ExpectAVul(len));
-                        } else {
-                            len += 1;
-                            deep -= 1;
-                            last_is_vul = true;
-                            expect_vul = false;
-                            continue;
-                        }
+                        // if !last_is_vul || expect_vul {
+                        //     return Err(TerlError::ExpectAVul(len));
+                        // } else {
+                        len += 1;
+                        deep -= 1;
+                        last_is_vul = true;
+                        expect_vul = false;
+                        continue;
+                        // }
                     }
                     // 双目
                     _ => {
@@ -238,7 +237,13 @@ unsafe fn collect_expr(exprs: &Vec<Expr>) -> Expr {
                             if crate::DEBUD_CORE_EXPR_BULDER {
                                 println!("\nIN\n");
                             }
-                            exprs[index] = collect_expr(&exprs[index + 1..].to_vec());
+                            // DANGERIOUS
+                            let more = exprs[index + 1..].to_vec();
+                            if more[0].is_right_part() {
+                                exprs[index] = Expr::Value(0)
+                            } else {
+                                exprs[index] = collect_expr(&more);
+                            }
                             priority_s[index] = 0;
                             bra_begin = index;
                         }
@@ -250,6 +255,7 @@ unsafe fn collect_expr(exprs: &Vec<Expr>) -> Expr {
                             if crate::DEBUD_CORE_EXPR_BULDER {
                                 println!("\nOUT\n");
                             }
+
                             return exprs[0].clone();
                         }
                         //括号刚结束

@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use super::{
     basic::{Name, Type},
     expr::Expr,
@@ -5,38 +7,47 @@ use super::{
     tree::{BeTree, Tree},
 };
 
-#[derive(Debug, Clone)]
-pub struct Word {
+#[derive(Clone)]
+pub struct Statement {
     deep: usize,
     is_pub: bool,
     pos: Pos,
-    contest: Context,
+    context: Context,
 }
-impl Word {
+impl Statement {
     pub fn new(deep: usize) -> Self {
         Self {
             deep,
             pos: Pos::new(),
             is_pub: false,
-            contest: Context::Begin,
+            context: Context::Begin,
         }
     }
 
-    pub fn set_deep(&mut self, deep: usize) {
-        self.deep = deep;
+    pub fn deep(&mut self) -> &mut usize {
+        &mut self.deep
     }
 
     pub fn set_is_pub(&mut self, is_pub: bool) {
         self.is_pub = is_pub;
     }
     pub fn context(&mut self) -> &mut Context {
-        &mut self.contest
+        &mut self.context
     }
     pub fn set_pos(&mut self, pos: Pos) {
         self.pos = pos
     }
 }
-impl BeTree for Word {
+impl Debug for Statement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Statement:\n\tdeep: {}\n\tis_pub: {}\n\tpos: {:?}\n\tcontext: {:?}",
+            self.deep, self.is_pub, self.pos, self.context
+        )
+    }
+}
+impl BeTree for Statement {
     fn deep(&self) -> usize {
         self.deep
     }
@@ -49,8 +60,8 @@ impl BeTree for Word {
         todo!()
     }
 }
-type Block = Tree<Word>;
-#[derive(Debug, Clone)]
+type Block = Tree<Statement>;
+#[derive(Clone)]
 pub enum Context {
     Begin,
     New,
@@ -62,4 +73,49 @@ pub enum Context {
     DefStruct(Name, Block, Vec<Type>),
     Import(Expr),
     Empty,
+}
+impl Context {
+    pub fn fill_block(&mut self, block: Block) {
+        match self.clone() {
+            Context::If(_e, _b) => {
+                *self = Self::If(_e, block);
+                return;
+            }
+            Context::Else(_b) => {
+                *self = Self::Else(block);
+                return;
+            }
+            Context::DefFun(_n, _e, _b, _t) => {
+                *self = Self::DefFun(_n, _e, block, _t);
+                return;
+            }
+            Context::DefStruct(_n, _b, _ts) => {
+                *self = Self::DefStruct(_n, block, _ts);
+                return;
+            }
+
+            _ => {
+                return;
+            }
+        }
+    }
+}
+impl Debug for Context {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let l = crate::BRACKET_L;
+        let r = crate::BRACKET_R;
+        match self {
+            Self::Begin => write!(f, "BEGIN"),
+            Self::New => write!(f, "NEW"),
+            Self::Empty => write!(f, "EMPTY"),
+
+            Context::If(_cond, _block) => write!(f, "IF({_cond:?}):{_block:?}"),
+            Context::Else(_block) => write!(f, "ELSE:{_block:?}"),
+            Context::Return(_e) => write!(f, "RETURN({_e:?})"),
+            Context::DefFun(_n, _a, _b, _t) => write!(f, "{_t:?}{l}{_n:?}{r}({_a:?}):{_b:?}"),
+            Context::DefVul(_n, _e, _t) => write!(f, "{_t:?}{l}{_n:?}{r}={_e:?}"),
+            Context::DefStruct(_n, _b, _e_s) => write!(f, "{l}{_n:?}{r}:{_e_s:?} {_b:?}"),
+            Context::Import(_) => todo!(),
+        }
+    }
 }
