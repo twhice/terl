@@ -30,10 +30,11 @@ impl Complier {
             lexer: Lexer::new(),
         }
     }
-    pub fn input(&mut self, src: &str) -> &mut Self {
+    pub fn input(&mut self, src: &str, filename: &str) -> &mut Self {
         for line in src.lines() {
             self.src.push(line.chars().collect())
         }
+        self.lexer.set_filename(filename);
         self
     }
     pub fn lex(&mut self) {
@@ -52,7 +53,8 @@ impl Complier {
         self.main = Statement::build_deep_tree(self.main.open_to_vec(), 0);
         let mut fill_one = false;
         let main_vec = &mut self.main.node_to_vec();
-        for index in 0..main_vec.len() {
+        let mut index = 0;
+        while index < main_vec.len() {
             let statement = main_vec[index].clone();
             match &statement {
                 Tree::Node(_vec) => {
@@ -61,6 +63,7 @@ impl Complier {
                             .context()
                             .fill_block(statement);
                         fill_one = false;
+                        main_vec.remove(index);
                         continue;
                     }
                 }
@@ -78,6 +81,7 @@ impl Complier {
                     _ => {}
                 },
             }
+            index += 1;
         }
     }
 }

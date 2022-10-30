@@ -14,10 +14,10 @@ pub fn start_prel() {
             Ok(_) => {
                 // print!("{}", input);
                 if input == "?\n" {
-                    // println!("{:?}", complier);
+                    println!("{:?}", runtime);
                     break;
                 }
-                runtime.input(&input).run();
+                runtime.input(&input, "114514.tl").run();
             }
             Err(_) => panic!("Err at read_line"),
         }

@@ -37,8 +37,8 @@ impl TerlArg {
             }
             TerlArg::Version => {
                 let mut str = String::new();
-                str += "terl v0.1.0";
-                str += "\nBy     :(twhice)异月";
+                str += "terl v0.0.1";
+                str += "\nBy     : (twhice)异月";
                 str += "\nLICENSE: Apache License 2.0";
                 format!("{}", str)
             }

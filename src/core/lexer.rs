@@ -1,11 +1,13 @@
 use crate::core::tree::Tree;
 
 use super::{
-    basic::{FullToken, Name, Token, Type, TOKENS},
+    basic::{Name, Type, TOKENS},
+    builder,
     context::{Context, Statement},
     expr::{self, Expr},
     op::Op,
     pos::Pos,
+    tokens::*,
 };
 
 #[derive(Clone, Debug)]
@@ -49,17 +51,25 @@ impl Lexer {
     }
     pub fn lex(&mut self, src: Vec<char>) -> &mut Self {
         self.line = src;
+
         self.basic_init_line();
         while !self.finish {
             self.basic_lex();
         }
         self.statement.set_pos(self.pos.clone());
         self.basic_finish_line();
-        self.build();
+        if false {
+            self.build();
+        } else {
+            self.statement = builder::build_statement(self.fulltokens.clone(), self.deep);
+        }
         self
     }
     pub fn get_statement(&self) -> Statement {
         self.statement.clone()
+    }
+    pub fn set_filename(&mut self, filename: &str) {
+        self.pos.set_filename(filename)
     }
     // basic
     fn get(&self) -> char {
@@ -78,19 +88,13 @@ impl Lexer {
         self.pos.new_line();
         self.begin = true;
         self.deep = 0;
+        self.index = 0;
         self.fulltokens.clear();
     }
     fn basic_finish_line(&mut self) {
         if self.finish {
-            // 重置状态
             self.finish = false;
-            // 收尾截取
             self.basic_endcurrt();
-            // deep载入 清理
-            *self.statement.deep() = self.deep;
-            // self.fulltokens.clear();
-            self.deep = 0;
-            self.index = 0;
         }
     }
     fn basic_endcurrt(&mut self) {
@@ -112,7 +116,7 @@ impl Lexer {
         if currten == '\0' {
             self.finish = true;
             return;
-        } else if currten == '/' {
+        } else if currten == '/' && self.begin {
             let next = self.next();
             if next == currten {
                 self.finish = true;
@@ -517,18 +521,19 @@ impl Lexer {
         match expr::build_expr(&tokens) {
             Ok(_expr) => return _expr,
             Err(_err) => match _err {
-                super::error::TerlError::ExpectAVul(_index) => self.error(&format!(
+                super::prompt::TerlError::ExpectVul(_index) => self.error(&format!(
                     "Expect a vul after {l}{}{r}{}",
                     target_token, target_pos
                 )),
-                super::error::TerlError::ExpectASymbol(_index) => self.error(&format!(
+                super::prompt::TerlError::ExpectSymbol(_index) => self.error(&format!(
                     "Expect a symbol after {l}{}{r}{}",
                     target_token, target_pos
                 )),
-                super::error::TerlError::MissBeacket(_index) => self.error(&format!(
+                super::prompt::TerlError::MissBeacket(_index) => self.error(&format!(
                     "miss bracket after {l}{}{r}{}",
                     target_token, target_pos
                 )),
+                _ => todo!(),
             },
         };
         todo!()

@@ -65,7 +65,7 @@ where
     Self: Sized + Debug + Clone,
 {
     // type Self = dyn Tree;
-    fn deep(&self) -> usize;
+    fn get_deep(&self) -> usize;
     fn is_left_part(&self) -> bool;
     fn is_right_part(&self) -> bool;
     fn build_deep_tree(ss: Vec<Self>, deep: usize) -> Tree<Self> {
@@ -73,7 +73,7 @@ where
         let mut wait = 0;
         let mut ret_vec: Vec<Tree<Self>> = Vec::new();
         for i in 0..ss.len() {
-            deep_now = ss[i].deep();
+            deep_now = ss[i].get_deep();
             if deep_now > deep {
                 if wait == 0 {
                     ret_vec.push(Self::build_deep_tree(ss[i..].to_vec(), deep_now))

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
     Add, // +
@@ -110,22 +112,55 @@ impl Op {
             // = < &&|| < <><= >= < ! <  +- < */ < ^ < () < other < .
             Self::B1r => 10, // )
             // Self::Assign => 10,  // =
-            Self::Tied => 9,     // ,
+            Self::Tied => 9, // ,
+            // Self::Type => 8,     // :
             Self::Smaller => 8,  // <
             Self::Greater => 8,  // >
             Self::Nsmaller => 8, // >=
-            Self::Ngreater => 8, // >=
+            Self::Ngreater => 8, // <=
             Self::And => 7,      // &&
             Self::Or => 7,       // ||
-            Self::Add => 5,      // +
-            Self::Min => 5,      // -
-            Self::Mul => 4,      // *
-            Self::Dev => 4,      // /
-            Self::Mod => 4,      // %
+            Self::Add => 6,      // +
+            Self::Min => 6,      // -
+            Self::Mul => 5,      // *
+            Self::Dev => 5,      // /
+            Self::Mod => 5,      // %
+            Self::Sl => 4,       // <<
+            Self::Sr => 4,       // >>
             Self::Inv => 3,      // ^
             Self::Not => 2,      // !
             Self::B1l => 1,      // (
             _ => 0,              // others
         }
+    }
+}
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::B1r => ")",       // )
+                Self::Tied => ",",      // ,
+                Self::Smaller => "<",   // <
+                Self::Greater => ">",   // >
+                Self::Nsmaller => ">=", // >=
+                Self::Ngreater => ">=", // <=
+                Self::And => "&&",      // &&
+                Self::Or => "||",       // ||
+                Self::Add => "+",       // +
+                Self::Min => "-",       // -
+                Self::Mul => "*",       // *
+                Self::Dev => "/",       // /
+                Self::Mod => "%",       // %
+                Self::Inv => "^",       // ^
+                Self::Not => "!",       // !
+                Self::B1l => "(",       // (
+                Self::Assign => "=",
+                Self::Sl => "<<",
+                Self::Sr => ">>",
+                _ => " ", // others
+            }
+        )
     }
 }

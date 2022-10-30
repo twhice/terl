@@ -6,4 +6,4 @@ pub mod core;
 pub static BRACKET_L: char = '「';
 pub static BRACKET_R: char = '」';
 
-pub static DEBUD_CORE_EXPR_BULDER: bool = true;
+pub static DEBUD_CORE_EXPR_BULDER: bool = false;

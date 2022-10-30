@@ -1,6 +1,8 @@
 use super::basic::*;
-use super::error::TerlError;
+use super::builder::FunArg;
 use super::op::Op;
+use super::prompt::TerlError;
+use super::tokens::*;
 use super::tree::BeTree;
 use std::fmt::Debug;
 #[derive(Debug, Clone)]
@@ -24,9 +26,12 @@ impl Expr {
             0
         }
     }
+    pub fn is_tied(&self) -> bool {
+        matches!(self, Expr::Op(Op::Tied))
+    }
 }
 impl BeTree for Expr {
-    fn deep(&self) -> usize {
+    fn get_deep(&self) -> usize {
         // 永远不用
         todo!()
     }
@@ -45,6 +50,15 @@ impl BeTree for Expr {
         } else {
             false
         }
+    }
+}
+impl From<FunArg> for Expr {
+    fn from(farg: FunArg) -> Self {
+        Self::P2(
+            Box::new(Token::Keyword(farg.get_arg_name().get_name()).into()),
+            Box::new(Self::Op(Op::Type)),
+            Box::new(Token::Keyword(farg.get_arg_type().get_typename().get_name()).into()),
+        )
     }
 }
 /// unsafe!
@@ -80,7 +94,7 @@ fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
         match expr {
             Expr::Op(_op) => {
                 if expect_vul && !(matches!(_op, Op::B1l) || matches!(_op, Op::B1r)) {
-                    return Err(TerlError::ExpectAVul(len));
+                    return Err(TerlError::ExpectVul(len));
                 }
                 match _op {
                     // 单目
@@ -98,12 +112,12 @@ fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
                             expect_vul = true;
                             continue;
                         } else {
-                            return Err(TerlError::ExpectAVul(len));
+                            return Err(TerlError::ExpectVul(len));
                         }
                     }
                     Op::B1l => {
                         if last_is_vul || !expect_vul {
-                            return Err(TerlError::ExpectASymbol(len));
+                            return Err(TerlError::ExpectSymbol(len));
                         } else {
                             len += 1;
                             deep += 1;
@@ -125,23 +139,28 @@ fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
                     }
                     // 双目
                     _ => {
-                        // 正常
+                        // 正常(?)
                         if last_is_vul || !expect_vul {
-                            len += 1;
-                            last_is_vul = false;
-                            expect_vul = true;
-                            continue;
+                            // 非运算符
+                            if _op.priority() != 0 {
+                                len += 1;
+                                last_is_vul = false;
+                                expect_vul = true;
+                                continue;
+                            } else {
+                                break;
+                            }
                         }
                         // 不正常
                         else {
-                            return Err(TerlError::ExpectAVul(len));
+                            return Err(TerlError::ExpectVul(len));
                         }
                     }
                 };
             }
             _ => {
                 if last_is_vul {
-                    return Err(TerlError::ExpectASymbol(len));
+                    return Err(TerlError::ExpectSymbol(len));
                 } else {
                     last_is_vul = true;
                     len += 1;
@@ -152,7 +171,7 @@ fn get_expr_len(exprs: &Vec<Expr>) -> Result<usize, TerlError> {
         }
     }
     if expect_vul || !last_is_vul {
-        return Err(TerlError::ExpectAVul(len));
+        return Err(TerlError::ExpectVul(len));
     }
     if deep != 0 {
         return Err(TerlError::MissBeacket(len));

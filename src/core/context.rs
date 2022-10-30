@@ -24,10 +24,6 @@ impl Statement {
         }
     }
 
-    pub fn deep(&mut self) -> &mut usize {
-        &mut self.deep
-    }
-
     pub fn set_is_pub(&mut self, is_pub: bool) {
         self.is_pub = is_pub;
     }
@@ -42,13 +38,13 @@ impl Debug for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Statement:\n\tdeep: {}\n\tis_pub: {}\n\tpos: {:?}\n\tcontext: {:?}",
+            "\nStatement:\n\tdeep: {}\n\tis_pub: {}\n\tpos: {:?}\n\tcontext: {:?}",
             self.deep, self.is_pub, self.pos, self.context
         )
     }
 }
 impl BeTree for Statement {
-    fn deep(&self) -> usize {
+    fn get_deep(&self) -> usize {
         self.deep
     }
     // 不会使用

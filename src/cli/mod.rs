@@ -36,14 +36,6 @@ pub fn program_begin() {
             // 同上
         }
     }
-    match open::open_src_file(args[1].clone().into()) {
-        Some(_src) => {
-            // 参数列表暂时不考虑
-            script::start_script(&_src, Vec::new());
-        }
-        None => {
-            // 不考虑
-        }
-    }
+    script::start_script(args[1].clone().into(), Vec::new());
     todo!("打开文件夹,其他情况")
 }

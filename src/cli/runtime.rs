@@ -1,16 +1,16 @@
 use crate::core::Complier;
-
+#[derive(Debug)]
 pub struct Runtime {
-    complier: Complier,
+    complier: Box<Complier>,
 }
 impl Runtime {
     pub fn new() -> Self {
         Self {
-            complier: Complier::new(),
+            complier: Box::new(Complier::new()),
         }
     }
-    pub fn input(&mut self, src: &str) -> &mut Self {
-        self.complier.input(src);
+    pub fn input(&mut self, src: &str, filename: &str) -> &mut Self {
+        self.complier.input(src, filename);
         self
     }
     pub fn run(&mut self) -> &mut Self {
@@ -18,6 +18,8 @@ impl Runtime {
         self.complier();
         self
     }
-    fn lexer(&mut self) {}
+    fn lexer(&mut self) {
+        self.complier.lex()
+    }
     fn complier(&mut self) {}
 }
