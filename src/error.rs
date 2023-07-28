@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::lexer::{Location, Token};
 
 #[derive(Debug, Clone)]
@@ -14,6 +16,14 @@ impl Error {
         }
     }
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {

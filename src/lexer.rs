@@ -7,7 +7,10 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(src: &str) -> Lexer {
-        let lines = src.lines().map(|l| l.chars().collect()).collect();
+        let lines = src
+            .lines()
+            .map(|l| l.chars().chain(std::iter::once('\n')).collect())
+            .collect();
         Lexer {
             lines,
             location: Location::new(0, 0, 0),
@@ -82,6 +85,33 @@ impl Lexer {
                 }
                 TokenVul::EndLine
             })
+        } else if this_char == '\"' {
+            self.next_char();
+            self.collect(|s| {
+                let mut collect = String::new();
+                loop {
+                    match s.this_char() {
+                        Some('\"') => {
+                            return TokenVul::String(collect);
+                        }
+                        Some(this) => {
+                            let real = if this == '\\' {
+                                let Some(real) = s.next_char() else {
+                                    return TokenVul::Unknow(collect);
+                                };
+                                real
+                            } else {
+                                this
+                            };
+                            collect.push(real);
+                            s.next_char();
+                        }
+                        None => {
+                            return TokenVul::Unknow("\"".to_owned() + &collect);
+                        }
+                    }
+                }
+            })
         } else {
             self.collect(|s| {
                 let mut string = String::from(this_char);
@@ -132,7 +162,7 @@ pub struct Token {
     pub vul: TokenVul,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Location {
     pub line: usize,
     pub row: usize,
@@ -166,17 +196,30 @@ pub enum TokenVul {
     String(String),
     Number(f64),
     Symbol(Symbol),
-    Comment,
     EndLine,
     Unknow(String),
+}
+
+impl TokenVul {
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            TokenVul::Ident(_) => "标识符",
+            TokenVul::String(_) => "字符串",
+            TokenVul::Number(_) => "数字",
+            TokenVul::Symbol(_) => "符号",
+            TokenVul::EndLine => "换行",
+            TokenVul::Unknow(_) => "未知",
+        }
+    }
 }
 
 macro_rules! symbols {
     ($($name : ident ,$src : literal ,$is_ass : expr , $is_op : expr, $priority : expr);*) => {
         #[derive(Debug,Clone,Copy,PartialEq,Eq)]
         pub enum Symbol{
+            #[allow(unused)]
             None,
-           $($name,)*
+            $($name,)*
         }
 
         impl std::str::FromStr for Symbol{
@@ -239,6 +282,8 @@ macro_rules! symbols {
 symbols! {   // is_ass_op is_op
     Add      ,"+"   ,false ,true  ,4;
     Sub      ,"-"   ,false ,true  ,4;
+    Mul      ,"*"   ,false ,true  ,4;
+    Div      ,"/"   ,false ,true  ,4;
     Not      ,"!"   ,false ,true  ,9;
     Split    ,","   ,false ,false ,0;
     BarcketL ,"("   ,false ,false ,0;

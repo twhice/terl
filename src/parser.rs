@@ -1,11 +1,12 @@
+use std::collections::HashMap;
+
 use crate::{
     error::{Error, ErrorKind},
-    lexer::{Token, TokenVul},
+    lexer::{Location, Token, TokenVul},
 };
 
-pub trait CompileUnit: Sized {
+pub trait ParseUnit: Sized {
     fn build(parser: &mut Parser) -> Result<Self, Error>;
-    fn compile(&self) -> Vec<String>;
 }
 
 pub struct Parser<'a> {
@@ -52,6 +53,15 @@ impl<'t> Parser<'t> {
         }
     }
 
+    pub fn next_endline(&mut self) -> Result<(), Error> {
+        self.match_next_token_vul(ErrorKind::NotOneOf(vec!["\n".to_owned()]), |v| {
+            matches!(v, TokenVul::EndLine)
+        })?;
+        // 消除多余换行
+        // while self.try_parse(|p| p.next_endline()).finish().is_ok() {}
+        Ok(())
+    }
+
     pub fn push_meta<M: CompileMeta>(&mut self, m: M) {
         self.metas.push(Box::new(m));
     }
@@ -70,6 +80,50 @@ impl<'t> Parser<'t> {
     fn append(&mut self, ano: Self) {
         self.index = ano.index;
         self.metas.extend(ano.metas);
+    }
+
+    pub fn do_parse(&mut self) -> Result<Vec<Box<dyn crate::syn::CompileUnit>>, Error> {
+        use crate::ast;
+        macro_rules! ast_box {
+            ($f : expr) => {
+                |p| {
+                    let ast = dbg!(($f)(p))?;
+                    Ok(Box::new(ast) as Box<dyn crate::syn::CompileUnit>)
+                }
+            };
+        }
+        let mut asts = vec![];
+        let error: Option<Error>;
+        loop {
+            let ast = self
+                .try_parse(ast_box!(ast::Bind::build))
+                .or_try_parse(ast_box!(ast::Expr::fn_call_stmt))
+                .finish();
+            match ast {
+                Ok(ast) => asts.push(ast),
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
+        }
+
+        if let (Some(error), Some(..)) = (error, self.next_token()) {
+            return Err(error);
+        }
+
+        Ok(asts)
+    }
+
+    pub fn finish(&mut self) -> Vec<Error> {
+        let mut state = CompileState::default();
+        for meta in self.metas.iter() {
+            meta.effect(&mut state);
+        }
+        self.metas
+            .iter()
+            .filter_map(|meta| meta.test(&mut state).err())
+            .collect()
     }
 }
 
@@ -110,7 +164,12 @@ impl<T> ParserState<'_, '_, T> {
     }
 }
 
-pub struct CompileState {}
+#[derive(Debug, Clone, Default)]
+pub struct CompileState {
+    pub var_use: HashMap<String, Location>,
+    pub var_def: HashMap<String, Location>,
+    pub var_ass: HashMap<String, Location>,
+}
 
 pub trait CompileMeta: 'static {
     fn effect(&self, state: &mut CompileState);

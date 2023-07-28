@@ -1,21 +1,16 @@
 use crate::{
     error::{Error, ErrorKind},
     lexer::{Location, Symbol, Token, TokenVul},
-    parser::{CompileMeta, CompileUnit, Parser},
-};
-
-const EMPTY_TOKEN: Token = Token {
-    location: Location::new(0, 0, 0),
-    vul: crate::lexer::TokenVul::Comment,
+    parser::{CompileMeta, ParseUnit, Parser},
 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct Op<'a> {
-    token: &'a Token,
-    symbol: Symbol,
+    pub token: &'a Token,
+    pub symbol: Symbol,
 }
 
-impl CompileUnit for Op<'_> {
+impl ParseUnit for Op<'_> {
     fn build(parser: &mut crate::parser::Parser) -> Result<Self, crate::error::Error> {
         let op = parser
             .next_token()
@@ -32,19 +27,15 @@ impl CompileUnit for Op<'_> {
         }
         Ok(Self { token: op, symbol })
     }
-
-    fn compile(&self) -> Vec<String> {
-        todo!()
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct AssOp<'a> {
-    token: &'a Token,
-    symbol: Symbol,
+    pub token: &'a Token,
+    pub symbol: Symbol,
 }
 
-impl CompileUnit for AssOp<'_> {
+impl ParseUnit for AssOp<'_> {
     fn build(parser: &mut crate::parser::Parser) -> Result<Self, crate::error::Error> {
         let op = parser
             .next_token()
@@ -57,10 +48,6 @@ impl CompileUnit for AssOp<'_> {
         }
         Ok(Self { token: op, symbol })
     }
-
-    fn compile(&self) -> Vec<String> {
-        todo!()
-    }
 }
 
 pub struct VarUse {
@@ -70,7 +57,7 @@ pub struct VarUse {
 
 impl CompileMeta for VarUse {
     fn effect(&self, state: &mut crate::parser::CompileState) {
-        todo!()
+        state.var_use.insert(self.var_name.clone(), self.location);
     }
 
     fn test(&self, state: &mut crate::parser::CompileState) -> Result<(), Error> {
@@ -97,9 +84,58 @@ pub enum Expr<'a> {
         token: &'a Token,
         name: &'a str,
     },
+    Str {
+        token: &'a Token,
+        vul: &'a str,
+    },
+    Fncall {
+        fn_name_token: &'a Token,
+        fn_name: &'a str,
+
+        args: Vec<Expr<'a>>,
+    },
 }
 
-impl CompileUnit for Expr<'_> {
+impl Expr<'_> {
+    fn head_token(&self) -> &Token {
+        match self {
+            Expr::Op1 { op, .. } => op.token,
+            Expr::Op2 { lv, .. } => lv.head_token(),
+            Expr::Fncall {
+                fn_name_token: token,
+                ..
+            }
+            | Expr::Var { token, .. }
+            | Expr::Str { token, .. }
+            | Expr::Num { token, .. } => token,
+        }
+    }
+
+    pub fn fn_call_stmt(parser: &mut Parser) -> Result<Self, Error> {
+        let expr = Expr::build(parser)?;
+        match &expr {
+            Expr::Num { token, .. } | Expr::Var { token, .. } | Expr::Str { token, .. } => {
+                return Err(ErrorKind::ShouldBe {
+                    should_be: "函数调用".to_owned(),
+                    should_not_be: token.vul.r#type().to_owned(),
+                }
+                .to_error(token))
+            }
+            Expr::Fncall { .. } => {}
+            _ => {
+                return Err(ErrorKind::ShouldBe {
+                    should_be: "函数调用".to_owned(),
+                    should_not_be: "表达式".to_owned(),
+                }
+                .to_error(expr.head_token()))
+            }
+        };
+        parser.next_endline()?;
+        Ok(expr)
+    }
+}
+
+impl ParseUnit for Expr<'_> {
     fn build(parser: &mut crate::parser::Parser) -> Result<Self, crate::error::Error> {
         fn atmoic_number(p: &mut Parser) -> Result<Expr<'static>, Error> {
             let number = p
@@ -125,6 +161,54 @@ impl CompileUnit for Expr<'_> {
                 var_name: name.clone(),
             });
             Ok(Expr::Var { token: ident, name })
+        }
+        fn atomic_string(p: &mut Parser) -> Result<Expr<'static>, Error> {
+            let string = p
+                .next_token()
+                .ok_or(ErrorKind::Not("字符串".to_owned()).error())?;
+            let TokenVul::String(str) =  &string.vul else {
+                    return  Err(ErrorKind::Not("字符串".to_owned()).to_error(string));
+                };
+            Ok(Expr::Str {
+                token: string,
+                vul: str,
+            })
+        }
+        fn fn_call(p: &mut Parser) -> Result<Expr<'static>, Error> {
+            // let fn_name;
+            let fn_name_token = p
+                .match_next_token_vul(ErrorKind::Not("标识符".to_owned()), |v| {
+                    matches!(v, TokenVul::Ident(..))
+                })?;
+            let TokenVul::Ident(fn_name) = &fn_name_token.vul else {
+                    panic!()
+                };
+
+            p.match_next_token_vul(ErrorKind::NotOneOf(vec!["(".to_owned()]), |v| {
+                matches!(v, TokenVul::Symbol(Symbol::BarcketL))
+            })?;
+
+            let mut args = vec![];
+
+            while let Ok(expr) = p.try_parse(Expr::build).finish() {
+                args.push(expr);
+                if p.match_next_token_vul(ErrorKind::None, |v| {
+                    matches!(v, &TokenVul::Symbol(Symbol::Split))
+                })
+                .is_err()
+                {
+                    break;
+                }
+            }
+
+            p.match_next_token_vul(ErrorKind::NotOneOf(vec![")".to_owned()]), |v| {
+                matches!(v, TokenVul::Symbol(Symbol::BarcketR))
+            })?;
+            Ok(Expr::Fncall {
+                fn_name_token,
+                fn_name,
+                args,
+            })
         }
         fn bracket_expr(p: &mut Parser) -> Result<Expr<'static>, Error> {
             p.match_next_token_vul(ErrorKind::NotOneOf(vec!["(".to_owned()]), |v| {
@@ -157,8 +241,10 @@ impl CompileUnit for Expr<'_> {
         fn atomic_expr(p: &mut Parser) -> Result<Expr<'static>, Error> {
             p.try_parse(atmoic_number)
                 .or_try_parse(atomic_var)
+                .or_try_parse(atomic_string)
                 .or_try_parse(unary_expr)
                 .or_try_parse(bracket_expr)
+                .or_try_parse(fn_call)
                 .finish()
         }
 
@@ -224,10 +310,6 @@ impl CompileUnit for Expr<'_> {
         assert!(exprs.len() == 1, "是bug");
         Ok(exprs.pop().unwrap())
     }
-
-    fn compile(&self) -> Vec<String> {
-        todo!()
-    }
 }
 
 pub struct VarDef {
@@ -237,7 +319,7 @@ pub struct VarDef {
 
 impl CompileMeta for VarDef {
     fn effect(&self, state: &mut crate::parser::CompileState) {
-        todo!()
+        state.var_def.insert(self.var_name.clone(), self.location);
     }
 
     fn test(&self, state: &mut crate::parser::CompileState) -> Result<(), Error> {
@@ -252,7 +334,7 @@ pub struct VarAss {
 
 impl CompileMeta for VarAss {
     fn effect(&self, state: &mut crate::parser::CompileState) {
-        todo!()
+        state.var_ass.insert(self.var_name.clone(), self.location);
     }
 
     fn test(&self, state: &mut crate::parser::CompileState) -> Result<(), Error> {
@@ -279,7 +361,7 @@ pub enum Bind<'a> {
     },
 }
 
-impl CompileUnit for Bind<'_> {
+impl ParseUnit for Bind<'_> {
     fn build(parser: &mut Parser) -> Result<Self, Error> {
         fn get_ident(p: &mut Parser, error: ErrorKind) -> Result<(String, Location), Error> {
             match p.next_token() {
@@ -293,7 +375,33 @@ impl CompileUnit for Bind<'_> {
             }
         }
 
-        parser
+        fn var_splitted(p: &mut Parser) -> Result<String, Error> {
+            p.match_next_token_vul(ErrorKind::None, |v| {
+                matches!(v, &TokenVul::Symbol(Symbol::Split))
+            })?;
+            let (name, location) = get_ident(p, ErrorKind::None)?;
+
+            p.push_meta(VarDef {
+                location,
+                var_name: name.clone(),
+            });
+            Ok(name)
+        }
+
+        fn collect_vars(p: &mut Parser) -> Result<Vec<String>, Error> {
+            let (var_name1, location1) = get_ident(p, ErrorKind::Not("标识符".to_owned()))?;
+            p.push_meta(VarDef {
+                location: location1,
+                var_name: var_name1.clone(),
+            });
+            let mut vars = vec![var_name1];
+            while let Ok(var) = p.try_parse(var_splitted).finish() {
+                vars.push(var);
+            }
+            Ok(vars)
+        }
+
+        let bind = parser
             .try_parse(|p| {
                 let r#let = p.match_next_token_vul(ErrorKind::Not("let".to_string()), |v| {
                     if let TokenVul::Ident(ident) = v {
@@ -302,34 +410,9 @@ impl CompileUnit for Bind<'_> {
                         false
                     }
                 })?;
-                let (var_name1, location1) = get_ident(p, ErrorKind::Not("标识符".to_owned()))?;
-                p.push_meta(VarDef {
-                    location: location1,
-                    var_name: var_name1.clone(),
-                });
-                let mut vars = vec![var_name1];
-                vars.extend(
-                    (0..)
-                        .map(|_| {
-                            p.try_parse(|p| {
-                                p.match_next_token_vul(ErrorKind::None, |v| {
-                                    matches!(v, &TokenVul::Symbol(Symbol::Split))
-                                })?;
-                                let (name, location) = get_ident(p, ErrorKind::None)?;
 
-                                p.push_meta(VarDef {
-                                    location,
-                                    var_name: name.clone(),
-                                });
-                                Ok(name)
-                            })
-                            .finish()
-                        })
-                        .take_while(|r| r.is_ok())
-                        .filter_map(|re| re.ok()),
-                );
-
-                let mut vars = Some(vars);
+                let mut vars = Some(collect_vars(p)?);
+                // dbg!(&vars);
 
                 p.try_parse(|p| {
                     let ass_op = AssOp::build(p)?;
@@ -346,7 +429,8 @@ impl CompileUnit for Bind<'_> {
                             }
                         }
                     }
-                    Ok(Self::Ass {
+                    Ok(Self::NewInit {
+                        r#let,
                         vars: vars.take().unwrap(),
                         ass_op,
                         vuls,
@@ -361,33 +445,7 @@ impl CompileUnit for Bind<'_> {
                 .finish()
             })
             .or_try_parse(|p| {
-                let (var_name1, location1) = get_ident(p, ErrorKind::Not("标识符".to_owned()))?;
-                p.push_meta(VarAss {
-                    location: location1,
-                    var_name: var_name1.clone(),
-                });
-                let mut vars = vec![var_name1];
-                vars.extend(
-                    (0..)
-                        .map(|_| {
-                            p.try_parse(|p| {
-                                p.match_next_token_vul(ErrorKind::None, |v| {
-                                    matches!(v, &TokenVul::Symbol(Symbol::Split))
-                                })?;
-                                let (name, location) = get_ident(p, ErrorKind::None)?;
-
-                                p.push_meta(VarAss {
-                                    location,
-                                    var_name: name.clone(),
-                                });
-                                Ok(name)
-                            })
-                            .finish()
-                        })
-                        .take_while(|r| r.is_ok())
-                        .filter_map(|re| re.ok()),
-                );
-
+                let vars = collect_vars(p)?;
                 let ass_op = AssOp::build(p)?;
 
                 let mut vuls = vec![];
@@ -402,27 +460,10 @@ impl CompileUnit for Bind<'_> {
 
                 Ok(Self::Ass { vars, ass_op, vuls })
             })
-            .finish()
-    }
+            .finish()?;
 
-    fn compile(&self) -> Vec<String> {
-        todo!()
-    }
-}
+        parser.next_endline()?;
 
-#[cfg(test)]
-mod tests {
-    use crate::lexer::Lexer;
-
-    use super::*;
-
-    #[test]
-    fn test_name() -> std::result::Result<(), Error> {
-        // 再不写test debug会累死
-        let src = "let x = 1 + 2 + 3";
-        let tokens = Lexer::new(src).toekns();
-        let let_stmt = Parser::new(&tokens).try_parse(Bind::build).finish();
-        dbg!(let_stmt)?;
-        Ok(())
+        Ok(bind)
     }
 }
