@@ -87,11 +87,12 @@ impl Lexer {
             })
         } else if this_char == '\"' {
             self.next_char();
-            self.collect(|s| {
+            fn string_collector(s: &mut Lexer) -> TokenVul {
                 let mut collect = String::new();
                 loop {
                     match s.this_char() {
                         Some('\"') => {
+                            s.next_char();
                             return TokenVul::String(collect);
                         }
                         Some(this) => {
@@ -99,7 +100,17 @@ impl Lexer {
                                 let Some(real) = s.next_char() else {
                                     return TokenVul::Unknow(collect);
                                 };
-                                real
+                                match real {
+                                    'n' => '\n',
+                                    't' => '\t',
+                                    'r' => '\r',
+                                    '\"' => '\"',
+                                    _ => {
+                                        // 忽略 不是转义字符
+                                        collect.push('\\');
+                                        real
+                                    }
+                                }
                             } else {
                                 this
                             };
@@ -111,7 +122,8 @@ impl Lexer {
                         }
                     }
                 }
-            })
+            }
+            self.collect(string_collector)
         } else {
             self.collect(|s| {
                 let mut string = String::from(this_char);
@@ -284,10 +296,19 @@ symbols! {   // is_ass_op is_op
     Sub      ,"-"   ,false ,true  ,4;
     Mul      ,"*"   ,false ,true  ,4;
     Div      ,"/"   ,false ,true  ,4;
+    Lesser   ,"<"   ,false ,true  ,3;
+    Greater  ,">"   ,false ,true  ,3;
+    LesserE  ,"<="  ,false ,true  ,3;
+    Eq       ,"=="  ,false ,true  ,3;
+    NEq      ,"!="  ,false ,true  ,3;
+    SEq      ,"===" ,false ,true  ,3;
+    GreaterE ,">="  ,false ,true  ,3;
     Not      ,"!"   ,false ,true  ,9;
     Split    ,","   ,false ,false ,0;
     BarcketL ,"("   ,false ,false ,0;
     BarcketR ,")"   ,false ,false ,0;
+    SpaceL   ,"{"   ,false ,false ,0;
+    SpaceR   ,"}"   ,false ,false ,0;
     Ass      ,"="   ,true  ,false ,0
 
 }
@@ -295,5 +316,23 @@ symbols! {   // is_ass_op is_op
 impl Symbol {
     pub fn is_unary(&self) -> bool {
         matches!(self, Self::Not | Self::Sub)
+    }
+}
+
+impl std::ops::Not for Symbol {
+    type Output = Option<Symbol>;
+
+    fn not(self) -> Self::Output {
+        let result = match self {
+            Self::Greater => Self::LesserE,
+            Self::LesserE => Self::Greater,
+            Self::Lesser => Self::GreaterE,
+            Self::GreaterE => Self::Lesser,
+            Self::Eq => Self::NEq,
+            Self::NEq => Self::Eq,
+            Self::Not => Self::None,
+            _ => return None,
+        };
+        Some(result)
     }
 }
