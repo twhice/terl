@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{fmt::Display, ops::Deref};
 
 pub struct Lexer {
     location: Location,
@@ -174,6 +174,13 @@ pub struct Token {
     pub vul: TokenVul,
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let location = self.location.display_location();
+        write!(f, "{} at {}:{}", self.vul, location.0, location.1)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Location {
     pub line: usize,
@@ -212,15 +219,15 @@ pub enum TokenVul {
     Unknow(String),
 }
 
-impl TokenVul {
-    pub fn r#type(&self) -> &'static str {
+impl Display for TokenVul {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenVul::Ident(_) => "标识符",
-            TokenVul::String(_) => "字符串",
-            TokenVul::Number(_) => "数字",
-            TokenVul::Symbol(_) => "符号",
-            TokenVul::EndLine => "换行",
-            TokenVul::Unknow(_) => "未知",
+            TokenVul::Ident(ident) => write!(f, "{ident}"),
+            TokenVul::String(string) => write!(f, "\"{string}\""),
+            TokenVul::Number(number) => write!(f, "{number}"),
+            TokenVul::Symbol(symbol) => write!(f, "{symbol}"),
+            TokenVul::EndLine => write!(f, "ENDLINE"),
+            TokenVul::Unknow(unknow) => write!(f, "UNKNOW({unknow})"),
         }
     }
 }
@@ -291,11 +298,11 @@ macro_rules! symbols {
     };
 }
 
-symbols! {   // is_ass_op is_op
+symbols! {//     is_ass_op  is_op
     Add      ,"+"   ,false ,true  ,4;
     Sub      ,"-"   ,false ,true  ,4;
-    Mul      ,"*"   ,false ,true  ,4;
-    Div      ,"/"   ,false ,true  ,4;
+    Mul      ,"*"   ,false ,true  ,5;
+    Div      ,"/"   ,false ,true  ,5;
     Lesser   ,"<"   ,false ,true  ,3;
     Greater  ,">"   ,false ,true  ,3;
     LesserE  ,"<="  ,false ,true  ,3;
@@ -319,10 +326,10 @@ impl Symbol {
     }
 }
 
-impl std::ops::Not for Symbol {
+impl std::ops::Neg for Symbol {
     type Output = Option<Symbol>;
 
-    fn not(self) -> Self::Output {
+    fn neg(self) -> Self::Output {
         let result = match self {
             Self::Greater => Self::LesserE,
             Self::LesserE => Self::Greater,

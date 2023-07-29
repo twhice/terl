@@ -5,14 +5,17 @@ use crate::lexer::{Location, Token};
 #[derive(Debug, Clone)]
 pub struct Error {
     pub location: Option<Location>,
-    pub error: ErrorKind,
+    pub note: String,
+    pub kind: ErrorKind,
 }
 
 impl Error {
     pub fn empty() -> Self {
         Self {
             location: None,
-            error: ErrorKind::None,
+
+            kind: ErrorKind::None,
+            note: String::new(),
         }
     }
 }
@@ -28,26 +31,39 @@ impl std::error::Error for Error {}
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
     None,
-    ShouldBe {
-        should_be: String,
-        should_not_be: String,
-    },
-    Not(String),
+    /// 赋值运算符两边的元素数量不一致
+    CantAss,
     NotOneOf(Vec<String>),
+    Not(String),
+    UnExpect,
 }
 
 impl ErrorKind {
-    pub fn to_error(self, token: &Token) -> Error {
+    pub fn generate_error(self, token: &Token) -> Error {
         Error {
             location: token.location.into(),
-            error: self,
+            kind: self,
+            note: String::new(),
         }
     }
 
-    pub fn error(self) -> Error {
-        Error {
-            location: None,
-            error: self,
-        }
+    pub fn not_one_of(of: &[&str]) -> Self {
+        Self::NotOneOf(of.iter().copied().map(|s| s.to_owned()).collect())
+    }
+
+    pub fn not(be: &str) -> Self {
+        Self::Not(be.to_owned())
+    }
+
+    pub fn unexpect() -> Self {
+        Self::UnExpect
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    pub fn none() -> Self {
+        Self::None
     }
 }

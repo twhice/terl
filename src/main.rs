@@ -1,7 +1,8 @@
+mod ast;
 mod error;
 mod lexer;
-
-mod result;
+mod meta;
+mod parser;
 mod syn;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
