@@ -43,3 +43,9 @@ impl CompileUnit for ast::ControlFlow<'_> {
         todo!()
     }
 }
+
+impl CompileUnit for ast::FnDef<'_> {
+    fn generate(&self) -> Vec<String> {
+        todo!()
+    }
+}

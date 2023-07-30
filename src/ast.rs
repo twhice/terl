@@ -2,7 +2,8 @@ use std::fmt::Display;
 
 use crate::{
     error::{Error, ErrorKind},
-    lexer::{Symbol, Token},
+    lexer::{Location, Symbol, Token},
+    meta::{records, Value},
     parser::Parser,
     syn::CompileUnit,
 };
@@ -126,26 +127,39 @@ impl std::ops::Neg for Expr<'_> {
     }
 }
 
-// impl Expr<'_> {
-//     /// 常量折叠,编译时计算
-//     pub fn try_compute(self) -> Self {
-//         self
-//     }
-// }
+impl Expr<'_> {
+    /// 常量折叠,编译时计算
+    pub fn try_compute(self) -> Self {
+        self
+    }
 
-fn parse_fn_call(p: &mut Parser) -> Result<Expr<'static>, Error> {
-    let (fn_name_token, fn_name) = p.get_ident(ErrorKind::none)?;
+    pub fn record(&self, p: &mut Parser, location: Location, name: &str) {
+        let vaule = match self {
+            Expr::Var { name, .. } => Value::Var(name.to_string()),
+            Expr::Num { vul, .. } => Value::Number(*vul),
+            Expr::Str { vul, .. } => Value::String(vul.to_string()),
+            Expr::Op1 { .. } => Value::Expr,
+            Expr::Op2 { .. } => Value::Expr,
+            Expr::FnCall { fn_name, args, .. } => {
+                p.record(records::FnRecord::call(fn_name, location, args.len()));
+                Value::Expr
+            }
+        };
+        p.record(records::ValueRecord::Ass(name.to_owned(), location, vaule));
+    }
+}
 
+fn get_splitd_units_in_bracket<F, R>(p: &mut Parser, parser: F) -> Result<Vec<R>, Error>
+where
+    F: FnOnce(&mut Parser) -> Result<R, Error> + Copy + 'static,
+{
     p.match_symbol(&Symbol::BarcketL, ErrorKind::none)?;
-
-    let mut args = vec![];
-
-    // 部分重写
+    let mut units = vec![];
     loop {
-        // 先尝试获取函数的参数
-        if let Ok(arg) = p.try_parse(Expr::parse).finish(ErrorKind::none) {
-            args.push(arg);
-            // 如果紧接着是一个',' 表示之后可能还有参数
+        // 先尝试获取一个单元
+        if let Ok(unit) = p.try_parse(parser).finish(ErrorKind::none) {
+            units.push(unit);
+            // 如果紧接着是一个',' 表示之后可能还有单元
             if p.try_parse(|p| p.match_symbol(&Symbol::BarcketL, ErrorKind::none))
                 .finish(ErrorKind::none)
                 .is_ok()
@@ -154,13 +168,22 @@ fn parse_fn_call(p: &mut Parser) -> Result<Expr<'static>, Error> {
             }
         }
 
-        // 并没有成功捕获到参数
+        // 并没有成功捕获到单元
         // 有可能是)
         // 开始匹配 或者退出
         p.match_symbol(&Symbol::BarcketR, || ErrorKind::not(")"))?;
 
         break;
     }
+    Ok(units)
+}
+
+fn parse_fn_call(p: &mut Parser) -> Result<Expr<'static>, Error> {
+    let (fn_name_token, fn_name) = p.get_ident(ErrorKind::none)?;
+
+    let args = get_splitd_units_in_bracket(p, Expr::parse)?;
+
+    // 部分重写
 
     Ok(Expr::FnCall {
         fn_name_token,
@@ -179,6 +202,7 @@ impl ParserUnit for Expr<'_> {
     fn parse(p: &mut Parser) -> Result<Self, Error> {
         fn atomic_var(p: &mut Parser) -> Result<Expr<'static>, Error> {
             let (token, name) = p.get_ident(ErrorKind::none)?;
+            p.record(records::ValueRecord::Use(name.clone(), token.location));
             Ok(Expr::Var { token, name })
         }
         fn atomic_num(p: &mut Parser) -> Result<Expr<'static>, Error> {
@@ -332,35 +356,35 @@ pub enum Bind<'a> {
     },
 }
 
+fn get_splitd_idents_tokens(
+    p: &mut Parser,
+) -> Result<(Vec<&'static Token>, Vec<&'static str>), Error> {
+    let (var_token, var) = p.get_ident(|| ErrorKind::not("标识符"))?;
+    let var_tokens = vec![var_token];
+    let vars = vec![var.as_str()];
+    get_splitted_idents(p, var_tokens, vars)
+}
+
+fn get_splitted_idents(
+    p: &mut Parser,
+    mut var_tokens: Vec<&'static Token>,
+    mut vars: Vec<&'static str>,
+) -> Result<(Vec<&'static Token>, Vec<&'static str>), Error> {
+    while p
+        .try_parse(|p| p.match_symbol(&Symbol::Split, ErrorKind::none))
+        .finish(ErrorKind::none)
+        .is_ok()
+    {
+        let (var_token, var) = p.get_ident(|| ErrorKind::not("标识符"))?;
+        var_tokens.push(var_token);
+        vars.push(var.as_str());
+    }
+    Ok((var_tokens, vars))
+}
+
 impl ParserUnit for Bind<'_> {
     fn parse(p: &mut Parser) -> Result<Self, Error> {
-        fn get_vars_tokens(
-            p: &mut Parser,
-        ) -> Result<(Vec<&'static Token>, Vec<&'static str>), Error> {
-            let (var_token, var) = p.get_ident(|| ErrorKind::not("标识符"))?;
-            let var_tokens = vec![var_token];
-            let vars = vec![var.as_str()];
-            get_splitted_vars(p, var_tokens, vars)
-        }
-
-        fn get_splitted_vars(
-            p: &mut Parser,
-            mut var_tokens: Vec<&'static Token>,
-            mut vars: Vec<&'static str>,
-        ) -> Result<(Vec<&'static Token>, Vec<&'static str>), Error> {
-            while p
-                .try_parse(|p| p.match_symbol(&Symbol::Split, ErrorKind::none))
-                .finish(ErrorKind::none)
-                .is_ok()
-            {
-                let (var_token, var) = p.get_ident(|| ErrorKind::not("标识符"))?;
-                var_tokens.push(var_token);
-                vars.push(var.as_str());
-            }
-            Ok((var_tokens, vars))
-        }
-
-        fn get_splitted_vuls(p: &mut Parser) -> Result<Vec<Expr<'static>>, Error> {
+        fn get_splitted_exprs(p: &mut Parser) -> Result<Vec<Expr<'static>>, Error> {
             let mut exprs = vec![Expr::parse(p)?];
             while p
                 .try_parse(|p| p.match_symbol(&Symbol::Split, ErrorKind::none))
@@ -372,30 +396,56 @@ impl ParserUnit for Bind<'_> {
             Ok(exprs)
         }
 
+        fn generate_ass_records(
+            p: &mut Parser,
+            vars: &[&'static str],
+            var_tokens: &[&'static Token],
+            vuls: &[Expr<'static>],
+        ) {
+            for i in 0..vars.len() {
+                vuls[i].record(p, var_tokens[i].location, vars[i]);
+            }
+        }
+
+        fn generate_def_records(
+            p: &mut Parser,
+            vars: &[&'static str],
+            var_tokens: &[&'static Token],
+        ) {
+            for i in 0..var_tokens.len() {
+                let record = records::ValueRecord::Def(vars[i].to_owned(), var_tokens[i].location);
+                p.record(record);
+            }
+        }
+
         fn with_let(p: &mut Parser) -> Result<Bind<'static>, Error> {
             let r#let = p.match_ident(&"let".to_string(), ErrorKind::none)?;
-            let (var_tokens, vars) = get_vars_tokens(p)?;
+            let (var_tokens, vars) = get_splitd_idents_tokens(p)?;
             // 先匹配换行
             match p
                 .try_parse(|p| p.match_endlines())
                 .finish(|| ErrorKind::not_one_of(&["赋值运算符", "换行"]))
             {
-                Ok(..) => Ok(Bind::Define {
-                    r#let,
-                    var_tokens,
-                    vars,
-                }),
+                Ok(..) => {
+                    generate_def_records(p, &vars, &var_tokens);
+                    Ok(Bind::Define {
+                        r#let,
+                        var_tokens,
+                        vars,
+                    })
+                }
                 Err(..) => {
                     let ass_op = Op::parse(p)?;
                     match &ass_op {
                         Op::AssOp { .. } => {
-                            let vuls = get_splitted_vuls(p)?;
+                            let vuls = get_splitted_exprs(p)?;
                             // 赋值运算符两边的元素的数量不一致
                             if vuls.len() != vars.len() {
                                 return Err(ErrorKind::CantAss.generate_error(ass_op.token()));
                             }
                             p.match_endlines()?;
-
+                            generate_def_records(p, &vars, &var_tokens);
+                            generate_ass_records(p, &vars, &var_tokens, &vuls);
                             Ok(Bind::Init {
                                 r#let,
                                 var_tokens,
@@ -423,7 +473,7 @@ impl ParserUnit for Bind<'_> {
             let (var_token, var) = p.get_ident(ErrorKind::none)?;
             let var_tokens = vec![var_token];
             let vars = vec![var.as_str()];
-            let (var_tokens, vars) = get_splitted_vars(p, var_tokens, vars)?;
+            let (var_tokens, vars) = get_splitted_idents(p, var_tokens, vars)?;
 
             // let ass_op = match Op::parse(p) {
             //     Ok(ass_op) => ass_op,
@@ -439,13 +489,14 @@ impl ParserUnit for Bind<'_> {
             let ass_op = Op::parse(p)?;
             match &ass_op {
                 Op::AssOp { .. } => {
-                    let vuls = get_splitted_vuls(p)?;
+                    let vuls = get_splitted_exprs(p)?;
                     // 赋值运算符两边的元素的数量不一致
                     if vuls.len() != vars.len() {
                         return Err(ErrorKind::CantAss.generate_error(ass_op.token()));
                     }
                     // 先匹配换行
                     p.match_endlines()?;
+                    generate_ass_records(p, &vars, &var_tokens, &vuls);
                     Ok(Bind::Ass {
                         var_tokens,
                         vars,
@@ -474,37 +525,38 @@ impl ParserUnit for Bind<'_> {
     }
 }
 
+fn vector_to_string<D: ToString>(slice: &[D]) -> String {
+    let mut buffer = String::new();
+    for i in 0..slice.len() {
+        buffer += &slice[i].to_string();
+        if i < slice.len() - 1 {
+            buffer += ","
+        }
+    }
+    buffer
+}
+
 impl Display for Bind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn splitted_tostring<D: ToString>(slice: &[D]) -> String {
-            let mut buffer = String::new();
-            for i in 0..slice.len() {
-                buffer += &slice[i].to_string();
-                if i < slice.len() - 1 {
-                    buffer += ","
-                }
-            }
-            buffer
-        }
         match self {
-            Bind::Define { vars, .. } => write!(f, "let {}", splitted_tostring(vars)),
+            Bind::Define { vars, .. } => write!(f, "let {}", vector_to_string(vars)),
             Bind::Init {
                 vars, ass_op, vuls, ..
             } => write!(
                 f,
                 "let {} {} {}",
-                splitted_tostring(vars),
+                vector_to_string(vars),
                 ass_op,
-                splitted_tostring(vuls)
+                vector_to_string(vuls)
             ),
             Bind::Ass {
                 vars, ass_op, vuls, ..
             } => write!(
                 f,
                 "{} {} {}",
-                splitted_tostring(vars),
+                vector_to_string(vars),
                 ass_op,
-                splitted_tostring(vuls)
+                vector_to_string(vuls)
             ),
         }
     }
@@ -512,17 +564,28 @@ impl Display for Bind<'_> {
 
 #[derive(Debug)]
 pub struct Block<'a> {
-    start: &'a Token,
-    stmts: Vec<Box<dyn CompileUnit>>,
-    end: &'a Token,
+    pub index: usize,
+    pub start: &'a Token,
+    pub stmts: Vec<Box<dyn CompileUnit>>,
+    pub end: &'a Token,
 }
 
 impl ParserUnit for Block<'_> {
     fn parse(p: &mut Parser) -> Result<Self, Error> {
+        use std::sync::atomic;
+        static SPACE_INDEX: atomic::AtomicUsize = atomic::AtomicUsize::new(1);
         let start = p.match_symbol(&Symbol::SpaceL, ErrorKind::none)?;
+        let index = SPACE_INDEX.fetch_add(1, atomic::Ordering::Relaxed);
+        p.record(records::SpaceAllocRrcord::Start(index));
         let stmts = parse_compile_units(p)?;
         let end = p.match_symbol(&Symbol::SpaceR, ErrorKind::unexpect)?;
-        Ok(Self { start, stmts, end })
+        p.record(records::SpaceAllocRrcord::End);
+        Ok(Self {
+            index,
+            start,
+            stmts,
+            end,
+        })
     }
 }
 
@@ -530,7 +593,7 @@ impl Display for Block<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         for stmt in &self.stmts {
-            write!(f, "[{stmt}]")?;
+            writeln!(f, "{stmt}")?;
         }
         write!(f, "}}")
     }
@@ -664,6 +727,62 @@ impl Display for ControlFlow<'_> {
     }
 }
 
+#[derive(Debug)]
+pub struct FnDef<'a> {
+    r#fn: &'a Token,
+    fn_name_token: &'a Token,
+    fn_name: &'a str,
+    parm_tokens: Vec<&'a Token>,
+    parms: Vec<&'a str>,
+    block: Block<'a>,
+}
+
+impl ParserUnit for FnDef<'_> {
+    fn parse(p: &mut Parser) -> Result<Self, Error> {
+        p.try_parse(|p| {
+            let r#fn = p.match_ident(&"fn".to_string(), ErrorKind::none)?;
+            let (fn_name_token, fn_name) = p.get_ident(|| ErrorKind::not("标识符"))?;
+
+            let get_parm_token = |p: &mut Parser| {
+                let (token, parm) = p.get_ident(ErrorKind::none)?;
+                Ok((token, parm.as_str()))
+            };
+
+            let (parm_tokens, parms): (Vec<_>, Vec<_>) =
+                get_splitd_units_in_bracket(p, get_parm_token)?
+                    .into_iter()
+                    .unzip();
+
+            let block = Block::parse(p)?;
+            p.match_endlines()?;
+
+            p.record(records::FnRecord::define(
+                fn_name,
+                fn_name_token.location,
+                parms.len(),
+            ));
+
+            Ok(Self {
+                r#fn,
+                fn_name_token,
+                fn_name,
+                parm_tokens,
+                parms,
+                block,
+            })
+        })
+        .with_note(|| format!("{}\n\t\t{}", "Fn用法：", "fn 标识符(标识符,...) 代码块"))
+        .finish(ErrorKind::none)
+    }
+}
+
+impl Display for FnDef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fn {}({})", self.fn_name, vector_to_string(&self.parms))?;
+        write!(f, "{}", self.block)
+    }
+}
+
 fn trim_endlines(p: &mut Parser) -> Result<crate::syn::EmptyStmt, Error> {
     p.try_parse(|p| p.match_endlines())
         .finish(ErrorKind::none)
@@ -675,29 +794,31 @@ fn trim_endlines(p: &mut Parser) -> Result<crate::syn::EmptyStmt, Error> {
     Ok(crate::syn::EmptyStmt)
 }
 
-pub fn parse_compile_units(p: &mut Parser) -> Result<Vec<Box<dyn CompileUnit>>, Error> {
+pub fn parse_compile_unit(p: &mut Parser) -> Result<Box<dyn CompileUnit>, Error> {
     macro_rules! cu_box {
         ($e : expr) => {
             |p| Ok(Box::new(($e)(p)?) as Box<dyn CompileUnit>)
         };
     }
+    p.try_parse(cu_box!(parse_fn_call_stmt))
+        .or_try_parse(cu_box!(trim_endlines))
+        .or_try_parse(cu_box!(ControlFlow::parse))
+        .or_try_parse(cu_box!(Block::parse))
+        .or_try_parse(cu_box!(FnDef::parse))
+        .or_try_parse(cu_box!(Bind::parse))
+        .with_note(|| "?".to_string())
+        .finish(|| ErrorKind::not_one_of(&["Bind", "If", "While", "FnCall"]))
+}
 
+pub fn parse_compile_units(p: &mut Parser) -> Result<Vec<Box<dyn CompileUnit>>, Error> {
     let mut compile_units = vec![];
     // 因为Block::parse会处理 “}”
     // 对于任何错误 直接break 交给外层处理
-    while let Ok(compile_unit) = p
-        .try_parse(cu_box!(parse_fn_call_stmt))
-        .or_try_parse(cu_box!(trim_endlines))
-        .or_try_parse(cu_box!(Bind::parse))
-        .or_try_parse(cu_box!(ControlFlow::parse))
-        .or_try_parse(cu_box!(Block::parse))
-        .with_note(|| "?".to_string())
-        .finish(|| ErrorKind::not_one_of(&["Bind", "If", "While", "FnCall"]))
-    {
+    while let Ok(compile_unit) = parse_compile_unit(p) {
         compile_units.push(compile_unit)
     }
 
-    let _ = p.try_parse(|p| p.match_endlines()).finish(ErrorKind::none);
+    // let _ = p.try_parse(|p| p.match_endlines()).finish(ErrorKind::none);
     // assert!(p.get_next_token().is_none()); 作为语句块的结束时可能有剩余
     Ok(compile_units)
 }
@@ -712,7 +833,9 @@ mod tests {
     {
         let tokens = crate::lexer::Lexer::new(src).toekns();
         let mut parser = crate::parser::Parser::new(&tokens);
-        parser.try_parse(f).finish(ErrorKind::none)
+        let result = parser.try_parse(f).finish(ErrorKind::none);
+        parser.resolve_records()?;
+        result
     }
 
     #[test]
@@ -750,12 +873,16 @@ mod tests {
     #[test]
     fn block() {
         let src = r"
-            let x = main()        
-            {
+            let x
+            {  
+                x = 12
+                let y = 13
                 main()
             }
+            y = 1
         ";
         let r = parser_test(src, parse_compile_units);
+        dbg!(&r);
         assert!(r.is_ok());
     }
 }

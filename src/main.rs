@@ -13,13 +13,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let src_path = "test.tl";
     let src = std::fs::read_to_string(src_path)?;
     let tokens = lexer::Lexer::new(&src).toekns();
-    // dbg!(&tokens);
-    for token in &tokens {
-        dbg!(&token.vul);
-    }
-    // let mut parser = parser::Parser::new(&tokens);
-    // let asts = parser.do_parse()?;
-    // dbg!(&asts);
-    // let errors = parser.finish();
+    let mut parser = parser::Parser::new(&tokens);
+    let cus = parser.get_compile_units()?;
+    dbg!(&cus);
+    let (_global_space, warns) = parser.resolve_records()?;
+    dbg!(&warns);
+
     Ok(())
 }
