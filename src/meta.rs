@@ -1,8 +1,8 @@
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    ast,
-    error::{Error, ErrorKind, Warn},
+    abi::VariableValue,
+    error::{Error, ErrorKind},
     lexer::Location,
 };
 
@@ -22,7 +22,7 @@ impl GlobalSpace {
         }
     }
 
-    pub fn new_sapce(&mut self) -> usize {
+    pub fn new_space(&mut self) -> usize {
         let space = Space::new(self.this_space);
         self.this_space = self.spaces.len();
         self.spaces.push(space);
@@ -34,14 +34,19 @@ impl GlobalSpace {
         self.this_space
     }
 
-    pub fn global_get_var(&mut self, name: &str) -> Option<(&Value, Location)> {
+    pub fn global_lookup_var(
+        &mut self,
+        name: &str,
+        location: Location,
+    ) -> Result<&VariableValue, Error> {
         let mut space = self.this_space;
 
         loop {
-            if let Some(vaule) = self[space].local_get_var(name) {
-                return Some(vaule);
-            } else if space == 0 {
-                return None;
+            if let Some(value) = self[space].local_lookup_var(name, location) {
+                return Ok(value);
+            }
+            if space == 0 {
+                return Err(ErrorKind::UnDefinedVar(name.to_owned()).make_error(location));
             } else {
                 space = self[space].super_space
             }
@@ -62,7 +67,12 @@ impl GlobalSpace {
         }
     }
 
-    pub fn global_ass_var(&mut self, name: &str, val: Value) -> Result<(), Value> {
+    pub fn global_ass_var(
+        &mut self,
+        name: &str,
+        location: Location,
+        val: VariableValue,
+    ) -> Result<(), Error> {
         let mut space = self.this_space;
         let mut val = Some(val);
         loop {
@@ -71,7 +81,7 @@ impl GlobalSpace {
                 Err(v) => val = Some(v),
             }
             if space == 0 {
-                return Err(val.take().unwrap());
+                return Err(ErrorKind::UnDefinedVar(name.to_string()).make_error(location));
             } else {
                 space = self[space].super_space
             }
@@ -131,21 +141,6 @@ impl std::ops::IndexMut<usize> for GlobalSpace {
     }
 }
 
-impl std::ops::Index<&ast::Block<'_>> for GlobalSpace {
-    type Output = Space;
-
-    fn index(&self, index: &ast::Block) -> &Self::Output {
-        &self[self.mapping.get(&index.index).copied().unwrap()]
-    }
-}
-
-impl std::ops::IndexMut<&ast::Block<'_>> for GlobalSpace {
-    fn index_mut(&mut self, index: &ast::Block) -> &mut Self::Output {
-        let index = self.mapping.get(&index.index).copied().unwrap();
-        &mut self[index]
-    }
-}
-
 impl std::ops::Deref for GlobalSpace {
     type Target = Space;
 
@@ -177,12 +172,12 @@ impl Space {
         }
     }
 
-    pub fn local_get_var(&self, name: &str) -> Option<(&Value, Location)> {
+    pub fn local_lookup_var(&self, name: &str, location: Location) -> Option<&VariableValue> {
         let var = self.vars.get(name)?;
-        Some((var.vul.as_ref()?, *var.defines.last()?))
+        var.vul.as_ref()
     }
 
-    pub fn local_ass_var(&mut self, name: &str, val: Value) -> Result<(), Value> {
+    pub fn local_ass_var(&mut self, name: &str, val: VariableValue) -> Result<(), VariableValue> {
         match self.vars.get_mut(name) {
             Some(v) => {
                 v.vul = Some(val);
@@ -250,7 +245,7 @@ pub struct VarRecords {
     pub defines: Vec<Location>,
     pub uses: Vec<Location>,
     // r#type : abi::Type
-    vul: Option<Value>,
+    vul: Option<VariableValue>,
 }
 
 impl VarRecords {
@@ -261,14 +256,6 @@ impl VarRecords {
             vul: None,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum Value {
-    Var(String),
-    Number(f64),
-    String(String),
-    Expr,
 }
 
 #[derive(Debug, Clone)]
@@ -288,117 +275,6 @@ impl FnRecords {
         Self {
             define,
             uses: vec![],
-        }
-    }
-}
-
-pub trait Record: Debug + 'static {
-    fn effect(&mut self, global: &mut GlobalSpace) -> Result<(), Error>;
-    fn test(&mut self, global: &mut GlobalSpace) -> Result<Warn, Error>;
-}
-
-pub mod records {
-    use crate::error::ErrorKind;
-
-    use super::*;
-    #[derive(Debug, Clone, Copy)]
-    pub enum SpaceAllocRrcord {
-        Start(usize),
-        End,
-    }
-
-    impl Record for SpaceAllocRrcord {
-        fn effect(&mut self, global: &mut GlobalSpace) -> Result<(), Error> {
-            match self {
-                SpaceAllocRrcord::Start(space_index) => {
-                    let index_in_global = global.new_sapce();
-                    global.mapping.insert(*space_index, index_in_global);
-                }
-                SpaceAllocRrcord::End => {
-                    global.close_space();
-                }
-            };
-            Ok(())
-        }
-
-        fn test(&mut self, _global: &mut GlobalSpace) -> Result<Warn, Error> {
-            Ok(Warn::empty())
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub enum ValueRecord {
-        Use(String, Location),
-        Def(String, Location),
-        Ass(String, Location, Value),
-    }
-
-    impl Record for ValueRecord {
-        fn effect(&mut self, global: &mut GlobalSpace) -> Result<(), Error> {
-            // 遵循 先定义再使用的规则
-            match self {
-                ValueRecord::Use(name, loc) => {
-                    global
-                        .global_get_var(name)
-                        .map(|_| ())
-                        .ok_or_else(|| ErrorKind::UnDefinedVar(name.to_owned()).make_error(*loc))?;
-                    global.global_use_var(name, *loc);
-                    Ok(())
-                }
-                ValueRecord::Def(name, loc) => {
-                    global.define_var(name, *loc);
-                    Ok(())
-                }
-                ValueRecord::Ass(name, loc, val) => global
-                    .global_ass_var(name, val.clone())
-                    .map_err(|_| ErrorKind::UnDefinedVar(name.clone()).make_error(*loc)),
-            }
-        }
-
-        fn test(&mut self, _global: &mut GlobalSpace) -> Result<Warn, Error> {
-            Ok(Warn::empty())
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub enum FnRecord {
-        /// 函数名 位置 参数个数
-        Define(String, Location, usize),
-        /// 函数名 位置 参数个数 空间位置
-        Call(String, Location, usize, usize),
-    }
-
-    impl FnRecord {
-        pub fn define(name: &str, location: Location, nr_args: usize) -> Self {
-            Self::Define(name.to_owned(), location, nr_args)
-        }
-
-        pub fn call(name: &str, location: Location, nr_args: usize) -> Self {
-            Self::Call(name.to_owned(), location, nr_args, 0)
-        }
-    }
-
-    impl Record for FnRecord {
-        fn effect(&mut self, global: &mut GlobalSpace) -> Result<(), Error> {
-            match self {
-                FnRecord::Define(name, location, nr_args) => {
-                    global.define_fn(name, *location, *nr_args)?
-                }
-                FnRecord::Call(_, _, _, space_idx) => *space_idx = global.this_space,
-            }
-
-            Ok(())
-        }
-
-        fn test(&mut self, global: &mut GlobalSpace) -> Result<Warn, Error> {
-            if let Self::Call(name, location, nr_args, sapce_idx) = self {
-                global
-                    .in_space(*sapce_idx, |global| {
-                        global.global_use_fn(name, *location, *nr_args)
-                    })
-                    .unwrap()?;
-            }
-            Ok(Warn::empty())
         }
     }
 }

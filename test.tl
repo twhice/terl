@@ -1,8 +1,4 @@
-let x
-{
-    let 中文 = "字符串"   
-}
-
-fn main(){
-    
+let y 
+while 1 {
+    y += 1 # 发生了错误的常量折叠
 }

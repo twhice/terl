@@ -2,8 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     error::{Error, ErrorKind},
-    lexer::{Location, Symbol, Token},
-    meta::{records, Value},
+    lexer::{Symbol, Token},
     parser::Parser,
     syn::CompileUnit,
 };
@@ -18,35 +17,35 @@ pub enum Op<'a> {
     Op { token: &'a Token, symbol: Symbol },
 }
 
-impl std::ops::Neg for Op<'_> {
-    type Output = Self;
+impl std::ops::Not for Op<'_> {
+    type Output = Result<Self, Self>;
 
-    fn neg(self) -> Self::Output {
+    fn not(self) -> Self::Output {
         match &self {
-            Op::AssOp { .. } => self,
-            Op::Op { symbol, token } => match -*symbol {
-                Some(symbol) => Self::Op { token, symbol },
-                None => self,
+            Op::AssOp { .. } => Err(self),
+            Op::Op { symbol, token } => match !*symbol {
+                Some(symbol) => Ok(Self::Op { token, symbol }),
+                None => Err(self),
             },
         }
     }
 }
 
 impl Op<'_> {
-    fn priority(&self) -> Option<usize> {
+    pub fn priority(&self) -> Option<usize> {
         match self {
             Op::AssOp { .. } => None,
             Op::Op { symbol, .. } => Some(symbol.priority()),
         }
     }
 
-    fn token(&self) -> &Token {
+    pub fn token(&self) -> &Token {
         match self {
             Op::AssOp { token, .. } | Op::Op { token, .. } => token,
         }
     }
 
-    fn symbol(&self) -> Symbol {
+    pub fn symbol(&self) -> Symbol {
         match self {
             Op::AssOp { symbol, .. } | Op::Op { symbol, .. } => *symbol,
         }
@@ -108,44 +107,43 @@ pub enum Expr<'a> {
     },
 }
 
-impl std::ops::Neg for Expr<'_> {
-    type Output = Self;
+impl std::ops::Neg for &mut Expr<'_> {
+    type Output = Result<Self, ()>;
 
     fn neg(self) -> Self::Output {
         match self {
-            Expr::Num { token, vul } => Self::Num { token, vul: -vul },
-            Expr::Op1 { op, rv } => match (-op).symbol() {
-                Symbol::None => Expr::Op1 { op, rv },
-                _ => Expr::Op1 { op: -op, rv },
-            },
-            Expr::Op2 { lv, op, rv } => match (-op).symbol() {
-                Symbol::None => Expr::Op2 { lv, op, rv },
-                _ => Expr::Op2 { lv, op, rv },
-            },
-            _ => self,
+            Expr::Num { vul, .. } => {
+                *vul = -*vul;
+                Ok(self)
+            }
+            Expr::Op1 { op, rv } if matches!(op.symbol(), Symbol::Not) => Ok(rv),
+            _ => Err(()),
         }
     }
 }
 
-impl Expr<'_> {
-    /// 常量折叠,编译时计算
-    pub fn try_compute(self) -> Self {
-        self
-    }
+impl std::ops::Not for &mut Expr<'_> {
+    type Output = Result<Self, ()>;
 
-    pub fn record(&self, p: &mut Parser, location: Location, name: &str) {
-        let vaule = match self {
-            Expr::Var { name, .. } => Value::Var(name.to_string()),
-            Expr::Num { vul, .. } => Value::Number(*vul),
-            Expr::Str { vul, .. } => Value::String(vul.to_string()),
-            Expr::Op1 { .. } => Value::Expr,
-            Expr::Op2 { .. } => Value::Expr,
-            Expr::FnCall { fn_name, args, .. } => {
-                p.record(records::FnRecord::call(fn_name, location, args.len()));
-                Value::Expr
+    fn not(self) -> Self::Output {
+        match self {
+            Expr::Num { vul, .. } => {
+                *vul = (*vul == 0.0) as u8 as f64;
+                Ok(self)
             }
-        };
-        p.record(records::ValueRecord::Ass(name.to_owned(), location, vaule));
+            Expr::Op1 { op, rv } => {
+                if matches!(op.symbol(), Symbol::Not) {
+                    Ok(rv)
+                } else {
+                    Err(())
+                }
+            }
+            Expr::Op2 { op, .. } if (!*op).is_ok() => {
+                *op = (!*op).unwrap();
+                Ok(self)
+            }
+            _ => Err(()),
+        }
     }
 }
 
@@ -202,7 +200,7 @@ impl ParserUnit for Expr<'_> {
     fn parse(p: &mut Parser) -> Result<Self, Error> {
         fn atomic_var(p: &mut Parser) -> Result<Expr<'static>, Error> {
             let (token, name) = p.get_ident(ErrorKind::none)?;
-            p.record(records::ValueRecord::Use(name.clone(), token.location));
+
             Ok(Expr::Var { token, name })
         }
         fn atomic_num(p: &mut Parser) -> Result<Expr<'static>, Error> {
@@ -396,28 +394,6 @@ impl ParserUnit for Bind<'_> {
             Ok(exprs)
         }
 
-        fn generate_ass_records(
-            p: &mut Parser,
-            vars: &[&'static str],
-            var_tokens: &[&'static Token],
-            vuls: &[Expr<'static>],
-        ) {
-            for i in 0..vars.len() {
-                vuls[i].record(p, var_tokens[i].location, vars[i]);
-            }
-        }
-
-        fn generate_def_records(
-            p: &mut Parser,
-            vars: &[&'static str],
-            var_tokens: &[&'static Token],
-        ) {
-            for i in 0..var_tokens.len() {
-                let record = records::ValueRecord::Def(vars[i].to_owned(), var_tokens[i].location);
-                p.record(record);
-            }
-        }
-
         fn with_let(p: &mut Parser) -> Result<Bind<'static>, Error> {
             let r#let = p.match_ident(&"let".to_string(), ErrorKind::none)?;
             let (var_tokens, vars) = get_splitd_idents_tokens(p)?;
@@ -426,14 +402,11 @@ impl ParserUnit for Bind<'_> {
                 .try_parse(|p| p.match_endlines())
                 .finish(|| ErrorKind::not_one_of(&["赋值运算符", "换行"]))
             {
-                Ok(..) => {
-                    generate_def_records(p, &vars, &var_tokens);
-                    Ok(Bind::Define {
-                        r#let,
-                        var_tokens,
-                        vars,
-                    })
-                }
+                Ok(..) => Ok(Bind::Define {
+                    r#let,
+                    var_tokens,
+                    vars,
+                }),
                 Err(..) => {
                     let ass_op = Op::parse(p)?;
                     match &ass_op {
@@ -444,8 +417,7 @@ impl ParserUnit for Bind<'_> {
                                 return Err(ErrorKind::CantAss.generate_error(ass_op.token()));
                             }
                             p.match_endlines()?;
-                            generate_def_records(p, &vars, &var_tokens);
-                            generate_ass_records(p, &vars, &var_tokens, &vuls);
+
                             Ok(Bind::Init {
                                 r#let,
                                 var_tokens,
@@ -496,7 +468,7 @@ impl ParserUnit for Bind<'_> {
                     }
                     // 先匹配换行
                     p.match_endlines()?;
-                    generate_ass_records(p, &vars, &var_tokens, &vuls);
+
                     Ok(Bind::Ass {
                         var_tokens,
                         vars,
@@ -564,7 +536,7 @@ impl Display for Bind<'_> {
 
 #[derive(Debug)]
 pub struct Block<'a> {
-    pub index: usize,
+    // pub space: usize,
     pub start: &'a Token,
     pub stmts: Vec<Box<dyn CompileUnit>>,
     pub end: &'a Token,
@@ -572,16 +544,15 @@ pub struct Block<'a> {
 
 impl ParserUnit for Block<'_> {
     fn parse(p: &mut Parser) -> Result<Self, Error> {
-        use std::sync::atomic;
-        static SPACE_INDEX: atomic::AtomicUsize = atomic::AtomicUsize::new(1);
+        // static SPACE_INDEX: atomic::AtomicUsize = atomic::AtomicUsize::new(1);
         let start = p.match_symbol(&Symbol::SpaceL, ErrorKind::none)?;
-        let index = SPACE_INDEX.fetch_add(1, atomic::Ordering::Relaxed);
-        p.record(records::SpaceAllocRrcord::Start(index));
+        // let index = SPACE_INDEX.fetch_add(1, atomic::Ordering::Relaxed);
+
         let stmts = parse_compile_units(p)?;
         let end = p.match_symbol(&Symbol::SpaceR, ErrorKind::unexpect)?;
-        p.record(records::SpaceAllocRrcord::End);
+
         Ok(Self {
-            index,
+            // space: index,
             start,
             stmts,
             end,
@@ -756,11 +727,11 @@ impl ParserUnit for FnDef<'_> {
             let block = Block::parse(p)?;
             p.match_endlines()?;
 
-            p.record(records::FnRecord::define(
-                fn_name,
-                fn_name_token.location,
-                parms.len(),
-            ));
+            // p.record(records::FnRecord::define(
+            //     fn_name,
+            //     fn_name_token.location,
+            //     parms.len(),
+            // ));
 
             Ok(Self {
                 r#fn,
@@ -834,13 +805,13 @@ mod tests {
         let tokens = crate::lexer::Lexer::new(src).toekns();
         let mut parser = crate::parser::Parser::new(&tokens);
         let result = parser.try_parse(f).finish(ErrorKind::none);
-        parser.resolve_records()?;
+
         result
     }
 
     #[test]
     fn expr() {
-        let src = "1 + 2 * 3 + !main()";
+        let src = r"1 + 2 * 3 + !main()";
 
         let r = parser_test(src, Expr::parse);
         assert!(r.is_ok());

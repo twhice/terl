@@ -1,0 +1,94 @@
+[src\main.rs:36] &stmts = Statements {
+    stmts: [
+        Set {
+            result: Variable {
+                name: Named(
+                    "x",
+                ),
+                value: UnknowType,
+            },
+            value: Variable {
+                name: None,
+                value: Number(
+                    2.0,
+                ),
+            },
+        },
+        Operation {
+            result: Variable {
+                name: Index(
+                    6,
+                ),
+                value: UnknowType,
+            },
+            op: Not,
+            v1: Variable {
+                name: Named(
+                    "x",
+                ),
+                value: UnknowType,
+            },
+            v2: Variable {
+                name: None,
+                value: Number(
+                    0.0,
+                ),
+            },
+        },
+        Jump {
+            left: Variable {
+                name: Index(
+                    6,
+                ),
+                value: UnknowType,
+            },
+            cond: Neq,
+            right: Variable {
+                name: None,
+                value: Number(
+                    0.0,
+                ),
+            },
+            target: 6,
+        },
+        Operation {
+            result: Variable {
+                name: Named(
+                    "y",
+                ),
+                value: UnknowType,
+            },
+            op: Add,
+            v1: Variable {
+                name: Named(
+                    "x",
+                ),
+                value: UnknowType,
+            },
+            v2: Variable {
+                name: Index(
+                    9,
+                ),
+                value: Number(
+                    1.0,
+                ),
+            },
+        },
+        Jump {
+            left: Variable {
+                name: None,
+                value: Number(
+                    0.0,
+                ),
+            },
+            cond: Always,
+            right: Variable {
+                name: None,
+                value: Number(
+                    0.0,
+                ),
+            },
+            target: 4,
+        },
+    ],
+}

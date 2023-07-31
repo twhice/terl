@@ -1,9 +1,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    error::{Error, ErrorKind, Warn},
+    error::{Error, ErrorKind},
     lexer::{Symbol, Token},
-    meta::{GlobalSpace, Record},
     syn,
 };
 
@@ -11,16 +10,11 @@ use crate::{
 pub struct Parser<'a> {
     index: usize,
     tokens: &'a [Token],
-    records: Vec<Box<dyn Record>>,
 }
 
 impl Parser<'_> {
     pub fn new(tokens: &[Token]) -> Parser {
-        Parser {
-            tokens,
-            index: 0,
-            records: vec![],
-        }
+        Parser { tokens, index: 0 }
     }
 
     pub fn get_next_token(&mut self) -> Option<&'static Token> {
@@ -58,26 +52,6 @@ impl Parser<'_> {
             return Error::empty();
         }
         e.generate_error(token)
-    }
-
-    pub fn record<R: Record>(&mut self, r: R) -> &mut Self {
-        self.records.push(Box::new(r));
-        self
-    }
-
-    pub fn resolve_records(&mut self) -> Result<(GlobalSpace, Vec<Warn>), Error> {
-        let mut global = GlobalSpace::new();
-        let mut warns = vec![];
-        for record in &mut self.records {
-            record.effect(&mut global)?;
-        }
-        for record in &mut self.records {
-            let warn = record.test(&mut global)?;
-            if !warn.kind.is_none() {
-                warns.push(warn);
-            }
-        }
-        Ok((global, warns))
     }
 
     pub fn get_compile_units(&mut self) -> Result<Vec<Box<dyn syn::CompileUnit>>, Error> {
@@ -168,7 +142,7 @@ impl<T> Try<'_, '_, T> {
         match f(&mut temp) {
             Ok(t) => {
                 self.state = Some(Ok(t));
-                self.parser.records.extend(temp.records);
+
                 self.parser.index = temp.index;
             }
 

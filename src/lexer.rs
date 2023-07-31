@@ -39,11 +39,11 @@ impl Lexer {
 
     fn next(&mut self) -> Option<Token> {
         let this_char = self.this_char()?;
-        if this_char.is_alphabetic() || this_char == '_' {
+        if this_char.is_alphabetic() || this_char == '_' || this_char == '@' {
             self.collect(|s| {
                 let mut ident: String = String::new();
                 while let Some(this) = s.this_char() {
-                    if !(this.is_alphanumeric() || this == '_') {
+                    if !(this.is_alphanumeric() || this == '_' || this_char == '@') {
                         break;
                     } else {
                         s.next_char();
@@ -234,6 +234,7 @@ impl Display for TokenVul {
 
 macro_rules! symbols {
     ($($name : ident ,$src : literal ,$is_ass : expr , $is_op : expr, $priority : expr);*) => {
+        /// 是词法上的符号，也是abi的符号
         #[derive(Debug,Clone,Copy,PartialEq,Eq)]
         pub enum Symbol{
             #[allow(unused)]
@@ -299,44 +300,113 @@ macro_rules! symbols {
 }
 
 symbols! {//     is_ass_op  is_op
-    Add      ,"+"   ,false ,true  ,4;
-    Sub      ,"-"   ,false ,true  ,4;
-    Mul      ,"*"   ,false ,true  ,5;
-    Div      ,"/"   ,false ,true  ,5;
-    Lesser   ,"<"   ,false ,true  ,3;
-    Greater  ,">"   ,false ,true  ,3;
-    LesserE  ,"<="  ,false ,true  ,3;
+    // 算术
+    Add      ,"+"   ,false ,true  ,5;
+    Sub      ,"-"   ,false ,true  ,5;
+    Mul      ,"*"   ,false ,true  ,6;
+    Div      ,"/"   ,false ,true  ,6;
+    IDiv     ,"//"  ,false ,true  ,6;
+    Rem      ,"%"   ,false ,true  ,6;
+    Pow      ,"**"  ,false ,true  ,7;
+
+    // 逻辑
     Eq       ,"=="  ,false ,true  ,3;
-    NEq      ,"!="  ,false ,true  ,3;
-    SEq      ,"===" ,false ,true  ,3;
-    GreaterE ,">="  ,false ,true  ,3;
+    Neq      ,"!="  ,false ,true  ,3;
+    And      ,"&&"  ,false ,true  ,3;
     Not      ,"!"   ,false ,true  ,9;
+    Or       ,"||"  ,false ,true  ,3;
+    Lr       ,"<"   ,false ,true  ,3;
+    Gr       ,">"   ,false ,true  ,3;
+    Seq      ,"===" ,false ,true  ,3;
+    LrE      ,"<="  ,false ,true  ,3;
+    GrE      ,">="  ,false ,true  ,3;
+
+    // 位运算
+    Shl      ,"<<"  ,false ,true  ,4;
+    Shr      ,">>"  ,false ,true  ,4;
+    Band     ,"&"   ,false ,true  ,4;
+    Xor      ,"^"   ,false ,true  ,4;
+    Flip     ,"~"   ,false ,true  ,4;
+
+    // 词法符号
     Split    ,","   ,false ,false ,0;
     BarcketL ,"("   ,false ,false ,0;
     BarcketR ,")"   ,false ,false ,0;
     SpaceL   ,"{"   ,false ,false ,0;
     SpaceR   ,"}"   ,false ,false ,0;
-    Ass      ,"="   ,true  ,false ,0
+
+    // 赋值运算符（纯粹语法糖）
+    Ass         ,"="    ,true  ,false ,0;
+    AddAss      ,"+="   ,true  ,false ,0;
+    SubAss      ,"-="   ,true  ,false ,0;
+    MulAss      ,"*="   ,true  ,false ,0;
+    DivAss      ,"/="   ,true  ,false ,0;
+    IDivAss     ,"//="  ,true  ,false ,0;
+    ModAss      ,"%="   ,true  ,false ,0;
+    PowAss      ,"**="  ,true  ,false ,0;
+    NeqAss      ,"!=="  ,true  ,false ,0;
+    AndAss      ,"&&="  ,true  ,false ,0;
+    NotAss      ,"!="   ,true  ,false ,0;
+    OrAss       ,"||="  ,true  ,false ,0;
+    LrAss       ,"<="   ,true  ,false ,0;
+    GrAss       ,">="   ,true  ,false ,0;
+    LrEAss      ,"<=="  ,true  ,false ,0;
+    GrEAss      ,">=="  ,true  ,false ,0;
+    ShlAss      ,"<<="  ,true  ,false ,0;
+    ShrAss      ,">>="  ,true  ,false ,0;
+    BandAss     ,"&="   ,true  ,false ,0;
+    XorAss      ,"^="   ,true  ,false ,0;
+    FlipAss     ,"~="   ,true  ,false ,0
+
+    // EqAss       ,"==="  ,true  ,false ,0; 歧义Seq
+    // SeqAss      ,"====" ,true  ,false ,0; 什么鬼
 
 }
 
 impl Symbol {
     pub fn is_unary(&self) -> bool {
-        matches!(self, Self::Not | Self::Sub)
+        matches!(self, Self::Not | Self::Sub | Self::Flip)
+    }
+
+    pub fn remove_ass(&self) -> Option<Self> {
+        let op = match self {
+            Self::AddAss => Self::Add,
+            Self::SubAss => Self::Sub,
+            Self::MulAss => Self::Mul,
+            Self::DivAss => Self::Div,
+            Self::IDivAss => Self::IDiv,
+            Self::ModAss => Self::Rem,
+            Self::PowAss => Self::Pow,
+            Self::NeqAss => Self::Neq,
+            Self::AndAss => Self::And,
+            Self::NotAss => Self::Not,
+            Self::OrAss => Self::Or,
+            Self::LrAss => Self::Lr,
+            Self::GrAss => Self::Gr,
+            Self::LrEAss => Self::LrE,
+            Self::GrEAss => Self::GrE,
+            Self::ShlAss => Self::Shl,
+            Self::ShrAss => Self::Shr,
+            Self::BandAss => Self::Band,
+            Self::XorAss => Self::Xor,
+            Self::FlipAss => Self::Flip,
+            _ => return None,
+        };
+        Some(op)
     }
 }
 
-impl std::ops::Neg for Symbol {
+impl std::ops::Not for Symbol {
     type Output = Option<Symbol>;
 
-    fn neg(self) -> Self::Output {
+    fn not(self) -> Self::Output {
         let result = match self {
-            Self::Greater => Self::LesserE,
-            Self::LesserE => Self::Greater,
-            Self::Lesser => Self::GreaterE,
-            Self::GreaterE => Self::Lesser,
-            Self::Eq => Self::NEq,
-            Self::NEq => Self::Eq,
+            Self::Gr => Self::LrE,
+            Self::LrE => Self::Gr,
+            Self::Lr => Self::GrE,
+            Self::GrE => Self::Lr,
+            Self::Eq => Self::Neq,
+            Self::Neq => Self::Eq,
             Self::Not => Self::None,
             _ => return None,
         };

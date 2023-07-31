@@ -1,4 +1,4 @@
-use std::{f32::consts::E, fmt::Display};
+use std::fmt::Display;
 
 use crate::lexer::{Location, Token};
 

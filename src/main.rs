@@ -1,10 +1,19 @@
+mod abi;
 mod ast;
 mod error;
 mod lexer;
 mod meta;
 mod parser;
 mod syn;
+/*
+    编译流程：
+        源码 经过词法分析 被解析成大量Token
+        Token经过语法分析 被解析成Ast
+        Ast在代码生成进行一些逻辑性的检查：
+            * 函数定义时的参数和调用时是否一致
+            * 参数的作用域静态检查
 
+*/
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // use std::env::args;
     // let mut args = args();
@@ -16,8 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = parser::Parser::new(&tokens);
     let cus = parser.get_compile_units()?;
     dbg!(&cus);
-    let (_global_space, warns) = parser.resolve_records()?;
-    dbg!(&warns);
+
+    let mut global = meta::GlobalSpace::new();
+    let mut stmts = syn::Statements::new();
+
+    for mut cu in cus {
+        stmts.link(|stmts| cu.generate(&mut global, stmts))?;
+    }
+
+    dbg!(&stmts);
 
     Ok(())
 }
